@@ -1,0 +1,115 @@
+---
+title: "PGA Initial Modeling"
+author: "Carlos Fabrega"
+date: "2024-02-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load libraries
+```{r}
+library(tidyverse)
+library(xgboost)
+library(caret)
+```
+
+
+Load data
+```{r}
+pga_df <- read.csv("14-22 practice data.csv")
+```
+
+Glimpse dataset
+```{r}
+summary(pga_df)
+```
+
+Drop unnecessary columns
+```{r}
+pga_df <- select(pga_df, -contains("DKP"), -contains("FDP"), -contains("SDP"), -contains("Unnamed"))
+```
+
+Glimpse again
+```{r}
+glimpse(pga_df)
+```
+
+
+```{r}
+summary(pga_df)
+```
+
+
+Convert features to appropriate data types and create 'par' column
+```{r}
+pga_df <- pga_df %>%
+  mutate(tournament.id = as.factor(tournament.id)) %>% 
+  mutate(tournament.name= as.factor(tournament.name)) %>% 
+  mutate(course = as.factor(course)) %>% 
+  mutate(date = as.Date(date)) %>% 
+  mutate(par = strokes - hole_par)
+```
+
+new copy with par and shots gained
+```{r}
+pga_for_mod <- pga_df %>% 
+  select(sg_putt, sg_arg, sg_app, sg_ott, sg_t2g, sg_total, par) %>% 
+  filter(!is.na(sg_putt))
+```
+
+
+Split training and test
+```{r}
+set.seed(111111)
+split <- createDataPartition(y = pga_for_mod$par, p=0.8, list = FALSE)
+pga_train <- pga_for_mod[split,]
+pga_test <- pga_for_mod[-split,]
+```
+
+
+
+xgbTree
+```{r}
+set.seed(111111)
+xgb_mod <-
+  train(
+    par ~.,
+    data = pga_train,
+    method = "xgbTree",
+    trControl = trainControl(method = "none", search = "random")
+  )
+```
+
+
+```{r}
+predicted_par <- predict(xgb_mod, newdata = pga_test)
+```
+
+
+```{r}
+# Actual 'par' values
+actual_par <- pga_test$par
+
+# Mean Absolute Error
+mae <- mean(abs(predicted_par - actual_par))
+
+# Mean Squared Error
+mse <- mean((predicted_par - actual_par) ^ 2)
+
+# Root Mean Squared Error
+rmse <- sqrt(mse)
+
+print(paste("MAE:", mae))
+print(paste("MSE:", mse))
+print(paste("RMSE:", rmse))
+
+```
+
+
+```{r}
+cbind(actual_par, predicted_par)
+```
+
