@@ -49,8 +49,16 @@ def _sort_key(df: pd.DataFrame) -> pd.Series:
 
 
 def _rolling_mean(series: pd.Series, window: int) -> pd.Series:
-    """Leakage-safe rolling mean: shift by 1 before the window."""
+    """Leakage-safe flat rolling mean: shift by 1 before the window."""
     return series.shift(1).rolling(window, min_periods=max(1, window // 4)).mean()
+
+
+def _ewm_mean(series: pd.Series, window: int) -> pd.Series:
+    """
+    Leakage-safe exponentially weighted mean: shift by 1 then ewm with span=window.
+    More recent tournaments get higher weight than older ones.
+    """
+    return series.shift(1).ewm(span=window, min_periods=max(1, window // 4)).mean()
 
 
 # ── Rolling SG averages ────────────────────────────────────────────────────────
@@ -74,7 +82,7 @@ def add_rolling_sg(
         for w in windows:
             feature_name = f"{col}_roll{w}"
             df[feature_name] = df.groupby("player_id")[col].transform(
-                lambda x, w=w: _rolling_mean(x, w)
+                lambda x, w=w: _ewm_mean(x, w)
             )
 
     return df.drop(columns=["_order"]).reset_index(drop=True)

@@ -26,7 +26,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
-from xgboost import XGBRegressor
+from xgboost import XGBRanker
 
 # ── Feature / target config ────────────────────────────────────────────────────
 
@@ -46,27 +46,44 @@ FEATURE_COLS: List[str] = [
 ]
 
 TARGET_COL = "prize_pct"
+
+# Relevance grades for rank:ndcg (must be non-negative integers).
+# Mapped from prize_pct so NDCG's 2^grade-1 gain mirrors the prize distribution.
+#   0 → missed cut          (prize_pct = 0)
+#   1 → made cut, pos 25+   (prize_pct ~0.001–0.009)
+#   2 → pos 12–24           (prize_pct ~0.009–0.025)
+#   3 → top 11, pos 6–11    (prize_pct ~0.025–0.041)
+#   4 → top 5               (prize_pct ~0.041–0.109)
+#   5 → win                 (prize_pct ≥ 0.109)
+def _to_grade(pct: float) -> int:
+    if pct <= 0.0:    return 0
+    if pct < 0.009:   return 1
+    if pct < 0.025:   return 2
+    if pct < 0.041:   return 3
+    if pct < 0.109:   return 4
+    return 5
+
+
 MODEL_PATH = Path("data/processed/model.pkl")
 
 
 # ── XGBoost config ─────────────────────────────────────────────────────────────
 
-def _make_model(n_estimators: int = 800) -> XGBRegressor:
-    # Hyperparameters are tuned for the prize_pct target (range ~0.001–0.18).
-    # gamma and reg_lambda must be scaled relative to the target's magnitude —
-    # the same values that worked for dk_points (range 0–200) would suppress
-    # all splits here since XGBoost gain scales with (target values)².
-    return XGBRegressor(
+def _make_model(n_estimators: int = 800) -> XGBRanker:
+    # LambdaRank (rank:ndcg) directly optimises ranking rather than regressing
+    # on prize_pct.  prize_pct is used as the relevance score: winner (0.18)
+    # is most relevant, missed cut (0.0) is least.  This avoids the target-scale
+    # regularisation problem that plagued the regression approach.
+    return XGBRanker(
+        objective="rank:ndcg",
         n_estimators=n_estimators,
         learning_rate=0.05,
         max_depth=4,
         min_child_weight=10,
         subsample=0.8,
         colsample_bytree=0.8,
-        gamma=0.0,
-        reg_lambda=0.01,
+        reg_lambda=1.0,
         tree_method="hist",
-        enable_categorical=False,
         random_state=42,
         n_jobs=-1,
     )
@@ -74,28 +91,32 @@ def _make_model(n_estimators: int = 800) -> XGBRegressor:
 
 # ── Data prep ──────────────────────────────────────────────────────────────────
 
-def prepare(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+def prepare(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
     """
-    Return (X, y) for rows that have a non-null target and at least one
-    non-null SG rolling feature (XGBoost can handle rows where ALL features
-    are NaN, but those rows carry no information).
+    Return (X, y, groups) for the LambdaRank model.
 
-    When target is prize_pct, restrict to made-cut rows only.  All missed-cut
-    rows share prize_pct=0.0 exactly, forming a degenerate mass that prevents
-    the model from finding useful splits.  The model still ranks likely
-    missed-cut players lower at inference time via their weak SG features.
+    All rows with a non-null target and at least one non-null SG feature are
+    included — missed-cut players (prize_pct=0) are valid lowest-relevance
+    examples that help the model learn to rank them below made-cut players.
+
+    Data is sorted by tournament_id so XGBRanker's group array is contiguous.
+    groups[i] = number of rows belonging to tournament i.
     """
     has_target = df[TARGET_COL].notna()
-    has_any_sg = df[[c for c in FEATURE_COLS if "sg_" in c]].notna().any(axis=1)
+    has_any_sg = df[[c for c in FEATURE_COLS if "sg_" in c and c in df.columns]].notna().any(axis=1)
     mask = has_target & has_any_sg
 
-    if TARGET_COL == "prize_pct" and "made_cut" in df.columns:
-        mask = mask & df["made_cut"].fillna(False).astype(bool)
+    sub = df[mask].copy()
+    # Must be sorted by tournament so groups are contiguous blocks
+    sub = sub.sort_values(["season", "tournament_id"])
 
     present_features = [c for c in FEATURE_COLS if c in df.columns]
-    X = df.loc[mask, present_features].astype(float)
-    y = df.loc[mask, TARGET_COL].astype(float)
-    return X, y
+    X = sub[present_features].astype(float)
+    # Convert continuous prize_pct to integer relevance grades for rank:ndcg.
+    # The original prize_pct is retained in sub for Spearman evaluation.
+    y = sub[TARGET_COL].apply(_to_grade).astype(int)
+    groups = sub.groupby("tournament_id", sort=False).size().values
+    return X, y, groups
 
 
 # ── Evaluation ─────────────────────────────────────────────────────────────────
@@ -106,8 +127,9 @@ def _spearman_by_tournament(
     min_players: int = 20,
 ) -> pd.Series:
     """
-    Per-tournament Spearman rank correlation between predicted and actual DK points.
-    Only include tournaments where at least min_players have valid predictions.
+    Per-tournament Spearman rank correlation between predicted scores and prize_pct.
+    Skips tournaments with fewer than min_players or constant actual/predicted values
+    (e.g. no-cut events where all payouts are identical).
     """
     tmp = df_test[["tournament_id", TARGET_COL]].copy()
     tmp["pred"] = y_pred
@@ -116,13 +138,15 @@ def _spearman_by_tournament(
         valid = grp.dropna(subset=[TARGET_COL, "pred"])
         if len(valid) < min_players:
             continue
+        if valid[TARGET_COL].std() == 0 or valid["pred"].std() == 0:
+            continue
         r, _ = spearmanr(valid[TARGET_COL], valid["pred"])
         results[tid] = r
     return pd.Series(results)
 
 
 def evaluate(
-    model: XGBRegressor,
+    model: XGBRanker,
     df_test: pd.DataFrame,
     label: str = "Test",
 ) -> Dict[str, float]:
@@ -130,7 +154,7 @@ def evaluate(
     Evaluate a fitted model on df_test.
     Returns a dict of scalar metrics and prints a summary.
     """
-    X_test, y_test = prepare(df_test)
+    X_test, y_test, _ = prepare(df_test)
     if X_test.empty:
         print(f"[{label}] No valid rows to evaluate.")
         return {}
@@ -183,12 +207,12 @@ def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3) -> List[Dict]:
         df_train = df[df["season"].isin(train_seasons)]
         df_test  = df[df["season"] == test_season]
 
-        X_train, y_train = prepare(df_train)
+        X_train, y_train, groups_train = prepare(df_train)
         if X_train.empty:
             continue
 
         model = _make_model()
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train, group=groups_train)
 
         metrics = evaluate(model, df_test, label=f"Test {test_season} (train {train_seasons[0]}-{train_seasons[-1]})")
         metrics["test_season"] = test_season
@@ -200,29 +224,29 @@ def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3) -> List[Dict]:
 
 # ── Training & saving ──────────────────────────────────────────────────────────
 
-def train_final(df: pd.DataFrame) -> XGBRegressor:
+def train_final(df: pd.DataFrame) -> XGBRanker:
     """Train on all available seasons and return the fitted model."""
-    X, y = prepare(df)
+    X, y, groups = prepare(df)
     model = _make_model()
-    model.fit(X, y)
+    model.fit(X, y, group=groups)
     return model
 
 
-def save(model: XGBRegressor, path: Path = MODEL_PATH) -> None:
+def save(model: XGBRanker, path: Path = MODEL_PATH) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         pickle.dump(model, f)
     print(f"Model saved → {path}")
 
 
-def load(path: Path = MODEL_PATH) -> XGBRegressor:
+def load(path: Path = MODEL_PATH) -> XGBRanker:
     with open(path, "rb") as f:
         return pickle.load(f)
 
 
 # ── Feature importances ────────────────────────────────────────────────────────
 
-def feature_importance(model: XGBRegressor, top_n: int = 20) -> pd.Series:
+def feature_importance(model: XGBRanker, top_n: int = 20) -> pd.Series:
     present = [c for c in FEATURE_COLS if c in model.feature_names_in_]
     imp = pd.Series(
         model.feature_importances_,
@@ -265,10 +289,10 @@ if __name__ == "__main__":
         print(f"\nTrain: {train_seasons[0]}–{train_seasons[-1]} ({len(df_train):,} rows)")
         print(f"Test:  {test_season} ({len(df_test):,} rows)")
 
-        X_train, y_train = prepare(df_train)
+        X_train, y_train, groups_train = prepare(df_train)
         print(f"Training on {len(X_train):,} rows × {len(X_train.columns)} features ...")
         model = _make_model()
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train, group=groups_train)
 
         evaluate(model, df_train, label=f"Train {train_seasons[0]}–{train_seasons[-1]}")
         evaluate(model, df_test,  label=f"Test {test_season}")
