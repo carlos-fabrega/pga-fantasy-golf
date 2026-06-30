@@ -7,7 +7,7 @@ Design choices:
   - Temporal expanding-window CV: train on seasons up to year N, test on N+1.
     Random splits are forbidden here because future SG data would leak into
     rolling features computed from the same pool.
-  - Target: dk_points (total DraftKings points for the tournament)
+  - Target: prize_pct (player's share of tournament purse, e.g. 0.18 for a win)
   - Primary eval metric: per-tournament Spearman rank correlation — this is
     what matters for lineup selection, not raw RMSE.
 
@@ -45,22 +45,26 @@ FEATURE_COLS: List[str] = [
     "starts_last8",
 ]
 
-TARGET_COL = "dk_points"
+TARGET_COL = "prize_pct"
 MODEL_PATH = Path("data/processed/model.pkl")
 
 
 # ── XGBoost config ─────────────────────────────────────────────────────────────
 
 def _make_model(n_estimators: int = 800) -> XGBRegressor:
+    # Hyperparameters are tuned for the prize_pct target (range ~0.001–0.18).
+    # gamma and reg_lambda must be scaled relative to the target's magnitude —
+    # the same values that worked for dk_points (range 0–200) would suppress
+    # all splits here since XGBoost gain scales with (target values)².
     return XGBRegressor(
         n_estimators=n_estimators,
         learning_rate=0.05,
         max_depth=4,
-        min_child_weight=10,   # needs ≥10 samples in a leaf → less overfit
+        min_child_weight=10,
         subsample=0.8,
         colsample_bytree=0.8,
-        gamma=1.0,             # min loss reduction for a split
-        reg_lambda=5.0,        # L2 regularisation
+        gamma=0.0,
+        reg_lambda=0.01,
         tree_method="hist",
         enable_categorical=False,
         random_state=42,
@@ -75,10 +79,18 @@ def prepare(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     Return (X, y) for rows that have a non-null target and at least one
     non-null SG rolling feature (XGBoost can handle rows where ALL features
     are NaN, but those rows carry no information).
+
+    When target is prize_pct, restrict to made-cut rows only.  All missed-cut
+    rows share prize_pct=0.0 exactly, forming a degenerate mass that prevents
+    the model from finding useful splits.  The model still ranks likely
+    missed-cut players lower at inference time via their weak SG features.
     """
     has_target = df[TARGET_COL].notna()
     has_any_sg = df[[c for c in FEATURE_COLS if "sg_" in c]].notna().any(axis=1)
     mask = has_target & has_any_sg
+
+    if TARGET_COL == "prize_pct" and "made_cut" in df.columns:
+        mask = mask & df["made_cut"].fillna(False).astype(bool)
 
     present_features = [c for c in FEATURE_COLS if c in df.columns]
     X = df.loc[mask, present_features].astype(float)

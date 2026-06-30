@@ -66,8 +66,8 @@ def predict(
         if col in weekly_df.columns:
             out[col] = weekly_df[col]
 
-    out["projected_dk_points"] = preds.round(2)
-    out["rank"] = out["projected_dk_points"].rank(ascending=False).astype(int)
+    out["projected_prize_pct"] = preds.round(6)
+    out["rank"] = out["projected_prize_pct"].rank(ascending=False).astype(int)
     out = out.sort_values("rank").reset_index(drop=True)
     return out
 
@@ -141,11 +141,11 @@ def main() -> None:
     print(f"\n{'='*60}")
     print(f"  {tournament}  |  {course}")
     print(f"{'='*60}")
-    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Proj. DK Pts':<14}")
+    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Proj. Prize %':<14}")
     print("-" * 58)
     for _, row in display.iterrows():
         owgr = f"#{int(row['owgr'])}" if pd.notna(row.get("owgr")) else "—"
-        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['projected_dk_points']:>6.1f}")
+        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['projected_prize_pct']*100:>6.2f}%")
 
     print(f"\nFull projections saved → {proj_path}")
 

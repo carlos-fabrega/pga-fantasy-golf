@@ -131,7 +131,7 @@ def _solve_one(
     x = {i: LpVariable(f"x_{i}", cat="Binary") for i in indices}
 
     # Objective: maximise projected performance
-    prob += lpSum(df.at[i, "projected_dk_points"] * x[i] for i in indices)
+    prob += lpSum(df.at[i, "projected_prize_pct"] * x[i] for i in indices)
 
     # Budget constraint
     prob += lpSum(df.at[i, "salary"] * x[i] for i in indices) <= budget
@@ -214,39 +214,39 @@ def display_lineups(
 
     for k, lineup in enumerate(lineups, 1):
         total_salary = int(lineup["salary"].sum())
-        total_proj   = lineup["projected_dk_points"].sum()
+        total_proj   = lineup["projected_prize_pct"].sum()
         remaining    = budget - total_salary
 
         header = f"Lineup {k}" if len(lineups) > 1 else "Optimal Lineup"
-        print(f"\n{'='*62}")
+        print(f"\n{'='*64}")
         print(f"  {header}  |  Budget: {budget_str}  |  Remaining: {_fmt_salary(remaining)}")
-        print(f"{'='*62}")
-        print(f"  {'#':<4}{'Player':<28}{'OWGR':<8}{'Salary':<12}{'Proj Pts'}")
-        print(f"  {'-'*58}")
+        print(f"{'='*64}")
+        print(f"  {'#':<4}{'Player':<28}{'OWGR':<8}{'Salary':<12}{'Proj. Prize %'}")
+        print(f"  {'-'*60}")
 
         for rank, (_, row) in enumerate(
-            lineup.sort_values("projected_dk_points", ascending=False).iterrows(), 1
+            lineup.sort_values("projected_prize_pct", ascending=False).iterrows(), 1
         ):
             owgr = f"#{int(row['owgr'])}" if pd.notna(row.get("owgr")) else "—"
             print(
                 f"  {rank:<4}{row['player_name']:<28}{owgr:<8}"
-                f"{_fmt_salary(int(row['salary'])):<12}{row['projected_dk_points']:.1f}"
+                f"{_fmt_salary(int(row['salary'])):<12}{row['projected_prize_pct']*100:.2f}%"
             )
 
-        print(f"  {'─'*58}")
-        print(f"  {'TOTAL':<28}{'':8}{_fmt_salary(total_salary):<12}{total_proj:.1f}")
+        print(f"  {'─'*60}")
+        print(f"  {'TOTAL':<28}{'':8}{_fmt_salary(total_salary):<12}{total_proj*100:.2f}%")
 
-    # Value board (proj pts per $M of salary) — useful for context
-    print(f"\n── Value Board (projected pts / $M salary) ──")
+    # Value board: prize % per $M of salary
+    print(f"\n── Value Board (proj. prize % per $M salary) ──")
     merged_df = merged_df.copy()
-    merged_df["value"] = (merged_df["projected_dk_points"] / merged_df["salary"] * 1_000_000).round(2)
-    top_value = merged_df.nlargest(15, "value")[["player_name", "salary", "projected_dk_points", "value"]]
-    print(f"  {'Player':<28}{'Salary':<12}{'Proj Pts':<12}{'Pts/$M'}")
-    print(f"  {'-'*54}")
+    merged_df["value"] = (merged_df["projected_prize_pct"] / merged_df["salary"] * 1_000_000).round(4)
+    top_value = merged_df.nlargest(15, "value")[["player_name", "salary", "projected_prize_pct", "value"]]
+    print(f"  {'Player':<28}{'Salary':<12}{'Proj. Prize %':<16}{'%/$M'}")
+    print(f"  {'-'*58}")
     for _, row in top_value.iterrows():
         print(
             f"  {row['player_name']:<28}{_fmt_salary(int(row['salary'])):<12}"
-            f"{row['projected_dk_points']:<12.1f}{row['value']:.2f}"
+            f"{row['projected_prize_pct']*100:<16.2f}{row['value']:.4f}"
         )
 
 

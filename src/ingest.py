@@ -1,7 +1,7 @@
 """
 Load and standardize raw data from both sources:
 
-  - Historical CSV (2014-2022): one row per player-tournament, includes DK points
+  - Historical CSV (2014-2022): one row per player-tournament, includes purse and finish pos
   - Scraped CSVs (2023+): one row per player-tournament, SG only, made-cut players only
 
 Both are normalized to a common schema before feature engineering.
@@ -12,6 +12,35 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 import numpy as np
+
+# ── PGA Tour payout table ──────────────────────────────────────────────────────
+# Payout as a fraction of total purse by finish position.
+# Source: standard PGA Tour distribution (approximate).
+# Missed cuts receive 0. Positions beyond the table receive the minimum entry.
+_PAYOUT_PCTS = {
+     1: 0.1800,  2: 0.1090,  3: 0.0690,  4: 0.0490,  5: 0.0410,
+     6: 0.0370,  7: 0.0340,  8: 0.0310,  9: 0.0290, 10: 0.0270,
+    11: 0.0250, 12: 0.0235, 13: 0.0220, 14: 0.0205, 15: 0.0190,
+    16: 0.0175, 17: 0.0165, 18: 0.0155, 19: 0.0145, 20: 0.0135,
+    21: 0.0125, 22: 0.0115, 23: 0.0105, 24: 0.00975,25: 0.00900,
+    26: 0.00845,27: 0.00790,28: 0.00745,29: 0.00700,30: 0.00655,
+    31: 0.00615,32: 0.00575,33: 0.00540,34: 0.00505,35: 0.00475,
+    36: 0.00450,37: 0.00425,38: 0.00400,39: 0.00375,40: 0.00350,
+    41: 0.00330,42: 0.00310,43: 0.00290,44: 0.00270,45: 0.00255,
+    46: 0.00240,47: 0.00225,48: 0.00215,49: 0.00205,50: 0.00195,
+    51: 0.00185,52: 0.00180,53: 0.00175,54: 0.00170,55: 0.00165,
+    56: 0.00160,57: 0.00155,58: 0.00150,59: 0.00145,60: 0.00140,
+    61: 0.00135,62: 0.00130,63: 0.00125,64: 0.00120,65: 0.00115,
+}
+_PAYOUT_MIN = 0.00110  # applied to positions beyond 65 that still made the cut
+
+
+def _pos_to_prize_pct(pos: float, made_cut: bool) -> float:
+    """Convert numeric finish position to prize share (fraction of purse)."""
+    if not made_cut or pd.isna(pos):
+        return 0.0
+    p = int(round(pos))
+    return _PAYOUT_PCTS.get(p, _PAYOUT_MIN)
 
 # ── Historical CSV ─────────────────────────────────────────────────────────────
 
@@ -83,6 +112,13 @@ def load_historical(path: str | Path) -> pd.DataFrame:
     for col in _HIST_SG_COLS:
         if col in df.columns:
             df[f"{col}_per_round"] = df[col]
+
+    # Prize money as a fraction of purse — primary model target.
+    # Purse is in millions in the CSV; prize_pct is dimensionless.
+    df["prize_pct"] = [
+        _pos_to_prize_pct(pos, mc)
+        for pos, mc in zip(df["finish_num"], df["made_cut"])
+    ]
 
     df["source"] = "historical"
     return df.sort_values("date").reset_index(drop=True)
@@ -160,7 +196,7 @@ _SCHEMA = [
     "total_par", "total_strokes",
     "sg_total_per_round", "sg_t2g_per_round", "sg_putt_per_round",
     "sg_ott_per_round", "sg_app_per_round", "sg_arg_per_round",
-    "dk_points", "fd_points",
+    "purse", "prize_pct", "dk_points", "fd_points",
     "source",
 ]
 
