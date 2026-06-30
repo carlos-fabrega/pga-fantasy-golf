@@ -44,9 +44,22 @@ from pulp import (
 
 from src.buzz import load_salaries, normalize_name
 
-PROJECTIONS_PATH = Path("data/processed/projections.csv")
+PROCESSED_DIR    = Path("data/processed")
 DEFAULT_BUDGET   = 1_650_000
 N_PLAYERS        = 6
+
+
+def _latest_projections() -> Path:
+    """Return the most recently modified projections.csv across all tournament folders."""
+    candidates = sorted(
+        PROCESSED_DIR.glob("*/projections.csv"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if candidates:
+        return candidates[0]
+    # Legacy flat path fallback
+    return PROCESSED_DIR / "projections.csv"
 
 
 # ── Name matching ──────────────────────────────────────────────────────────────
@@ -268,17 +281,18 @@ def main() -> None:
     # Output
     parser.add_argument("--lineups", type=int, default=1,
                         help="Number of alternative lineups to generate (default 1)")
-    parser.add_argument("--proj",    default=str(PROJECTIONS_PATH),
-                        help="Path to projections CSV")
+    parser.add_argument("--proj",    default=None,
+                        help="Path to projections CSV (defaults to most recent tournament folder)")
     args = parser.parse_args()
 
     # ── Load projections ───────────────────────────────────────────────────────
-    proj_path = Path(args.proj)
+    proj_path = Path(args.proj) if args.proj else _latest_projections()
     if not proj_path.exists():
         print(f"Projections not found at {proj_path}.")
-        print("Run `python -m src.predict` first.")
+        print("Run `python -m src.predict --tournament <id>` first.")
         return
     proj = pd.read_csv(proj_path)
+    out_dir = proj_path.parent  # lineups go in the same tournament folder
     print(f"Loaded {len(proj)} projections from {proj_path}")
 
     # ── Load salaries ──────────────────────────────────────────────────────────
@@ -312,7 +326,7 @@ def main() -> None:
         return
 
     display_lineups(lineups, args.budget, merged)
-    export_csv(lineups)
+    export_csv(lineups, out_dir / "lineups.csv")
 
 
 if __name__ == "__main__":
