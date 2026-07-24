@@ -139,16 +139,18 @@ def _solve_one(
     # Roster size
     prob += lpSum(x[i] for i in indices) == n_players
 
-    # Locks (must include)
+    # Locks (must include) — substring match so "Fleetwood" matches "tommy fleetwood"
     lock_keys = [normalize_name(n) for n in locks]
     for i in indices:
-        if df.at[i, "name_key"] in lock_keys:
+        nk = df.at[i, "name_key"]
+        if any(lk in nk or nk in lk for lk in lock_keys):
             prob += x[i] == 1
 
-    # Excludes (must not include)
+    # Excludes (must not include) — same substring logic
     excl_keys = [normalize_name(n) for n in excludes]
     for i in indices:
-        if df.at[i, "name_key"] in excl_keys:
+        nk = df.at[i, "name_key"]
+        if any(ek in nk or nk in ek for ek in excl_keys):
             prob += x[i] == 0
 
     # Diversity: must differ from every previous lineup by at least 1 player
@@ -250,6 +252,24 @@ def display_lineups(
         )
 
 
+def _lineups_filename(locks: List[str], excludes: List[str]) -> str:
+    """
+    Build a lineups filename that encodes the locks/excludes so distinct runs
+    don't overwrite each other. A plain run (no locks/excludes) stays 'lineups.csv'.
+    """
+    def _slug(names: List[str]) -> str:
+        return "_".join(normalize_name(n).replace(" ", "") for n in names if n.strip())
+
+    parts = []
+    if locks:
+        parts.append("lock_" + _slug(locks))
+    if excludes:
+        parts.append("excl_" + _slug(excludes))
+    if not parts:
+        return "lineups.csv"
+    return "lineups_" + "__".join(parts) + ".csv"
+
+
 def export_csv(lineups: List[pd.DataFrame], out_path: Path = Path("data/processed/lineups.csv")) -> None:
     """Save all lineups to a CSV for record-keeping."""
     rows = []
@@ -326,7 +346,7 @@ def main() -> None:
         return
 
     display_lineups(lineups, args.budget, merged)
-    export_csv(lineups, out_dir / "lineups.csv")
+    export_csv(lineups, out_dir / _lineups_filename(args.lock, args.exclude))
 
 
 if __name__ == "__main__":
