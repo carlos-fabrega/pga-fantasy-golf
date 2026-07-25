@@ -15,6 +15,25 @@ from typing import Sequence, List
 import numpy as np
 import pandas as pd
 
+# Substrings matched against lowercase tournament_name to identify links events.
+# The Open Championship is the canonical links event; Scottish Open and Dunhill
+# Links are also genuine links courses.  Irish Open venue varies but is often links.
+# NOTE: historical CSV has sg_total_per_round = NaN for The Open, so this feature
+# only carries signal at inference time (via the API's playerFinishStats history).
+_LINKS_PATTERNS = [
+    "the open",          # The Open Championship (all venues)
+    "scottish open",     # Genesis/Aberdeen Scottish Open (Renaissance Club etc.)
+    "dunhill links",     # Alfred Dunhill Links Championship
+    "irish open",        # Dubai Duty Free Irish Open (links venues)
+]
+
+
+def is_links_tournament(tournament_name: str) -> bool:
+    """Return True if the tournament name matches a known links event."""
+    name = str(tournament_name).lower()
+    return any(p in name for p in _LINKS_PATTERNS)
+
+
 # SG columns that exist in the historical data (per-round averages).
 # Some (ott, app, arg) are absent from scraped data; we skip them gracefully.
 _SG_COLS = [
@@ -123,6 +142,45 @@ def add_course_history(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=["_order"]).reset_index(drop=True)
 
 
+# ── Links history ─────────────────────────────────────────────────────────────
+
+def add_links_history(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each player-tournament, add their historical average SG total per round
+    across all prior links events, and the count of those starts.
+
+    links_sg_hist: expanding mean of sg_total_per_round at links venues (shifted
+                   by 1 so the current tournament is never included).
+    links_starts:  count of prior links starts with valid SG data.
+
+    Limitation: the historical CSV has sg_total_per_round = NaN for The Open
+    Championship, so this column is mostly NaN in training data.  It carries
+    signal at inference time via the API's playerFinishStats history (which
+    includes recent Scottish Opens and Opens where SG was recorded).
+    """
+    df = df.copy()
+
+    if "tournament_name" not in df.columns:
+        df["links_sg_hist"] = np.nan
+        df["links_starts"]  = np.nan
+        return df
+
+    df["_order"]    = _sort_key(df)
+    df["_links_sg"] = df["sg_total_per_round"].where(
+        df["tournament_name"].apply(is_links_tournament)
+    )
+    df = df.sort_values(["player_id", "_order"])
+
+    df["links_sg_hist"] = df.groupby("player_id")["_links_sg"].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+    df["links_starts"] = df.groupby("player_id")["_links_sg"].transform(
+        lambda x: x.shift(1).expanding().count()
+    )
+
+    return df.drop(columns=["_order", "_links_sg"]).reset_index(drop=True)
+
+
 # ── Made-cut rate ──────────────────────────────────────────────────────────────
 
 def add_made_cut_rate(
@@ -169,6 +227,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = add_rolling_sg(df)
     df = add_course_history(df)
+    df = add_links_history(df)
     df = add_made_cut_rate(df)
     df = add_recent_starts(df)
     return df

@@ -1,0 +1,112 @@
+# CLAUDE.md
+
+Guidance for Claude Code when working in this repository.
+
+## What this is
+
+An ML pipeline that predicts PGA Tour player performance and optimizes weekly fantasy lineups for
+[Buzz Fantasy Golf](https://buzzfantasygolf.com). It ranks a tournament field, projects each
+player's share of the purse, then solves a salary-cap integer program for the best lineups.
+
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+Requires `data/raw/historical/14-22 practice data.csv` (historical 2014–2022 results). It's
+gitignored and not fetched by any script — it must already exist locally.
+
+## Commands
+
+One-time / whenever historical or scraped data changes:
+```bash
+python -m src.pipeline        # ingest + feature-engineer → data/processed/feature_matrix.parquet
+python -m src.model           # train XGBRanker on all seasons → models/model_base.pkl
+python -m src.model --links   # train the links-course-tuned variant → models/model_links.pkl
+python -m src.model --cv      # expanding-window temporal CV report only (no save)
+```
+
+Weekly, before a tournament:
+```bash
+python -m src.predict --tournament R2026030          # scrape live field, score with base model
+python -m src.predict --tournament R2026100 --links  # links-tuned model (Open/Scottish/Dunhill/Irish)
+python -m src.optimizer --csv data/processed/R2026030_john_deere_classic/salaries.csv \
+                        --budget 1650000 --lineups 3
+```
+
+There is no automated test suite. Verify changes by re-running `python -m src.model --cv` and
+checking the mean Spearman rank correlation (≈0.26 is normal), or by running predict → optimizer
+end-to-end against a known tournament ID and eyeballing the output.
+
+## File layout
+
+```
+src/                 # one module per pipeline stage (see below)
+  paths.py           # SINGLE source of truth for all filesystem paths
+models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
+data/
+  raw/
+    historical/      # 14-22 practice data.csv (the 2014–2022 training source)
+    scraped/         # R{year}{id}.csv from the external scraper
+  processed/
+    feature_matrix.parquet
+    {tournament_id}_{slug}/   # per-week artifacts, all together:
+        weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv
+```
+
+Each week's inputs and outputs — salaries, features, projections, lineups — live together under
+`data/processed/{tournament_id}_{slug}/` so past results stay browsable without regenerating.
+
+**All paths are defined in `src/paths.py`** and anchored to the repo root, so scripts run from any
+working directory. When adding a file location, add it there — do not hardcode path strings in the
+stage modules.
+
+## Architecture
+
+Data flows through a fixed pipeline, one module per stage under `src/`:
+
+1. **`ingest.py`** — standardizes two disjoint sources into one schema: `load_historical()` (the
+   2014–2022 CSV — finish position, purse, DK/FD points, SG as per-round averages) and
+   `load_scraped()` (`data/raw/scraped/R{year}{id}.csv`, SG only, made-cut players only, from an
+   external scraper). `combine()` dedupes on `(player_id, tournament_id, season)`, preferring
+   historical rows where the two sources overlap.
+
+2. **`features.py`** — every rolling/history feature is computed with `shift(1)` *before* the
+   window, so tournament T's features only ever see T-1 and earlier. **This leakage-safety
+   invariant is what the whole model's validity depends on — preserve it in any new feature.**
+   Windows are 8/16/24 tournament starts (not calendar weeks). `is_links_tournament()` flags The
+   Open, Scottish Open, Dunhill Links, and Irish Open for the separate links feature set.
+
+3. **`pipeline.py`** — orchestrates ingest → features → `data/processed/feature_matrix.parquet`.
+
+4. **`model.py`** — `XGBRanker` with a `rank:ndcg` objective, **not regression**: `prize_pct` is
+   bucketed into 0–5 relevance grades (`_to_grade`) because LambdaRank needs discrete relevance
+   rather than a continuous target. Two trained variants: base (`FEATURE_COLS`) and links
+   (`FEATURE_COLS_LINKS`, adds `links_sg_hist`/`links_starts`). Evaluated by per-tournament Spearman
+   rank correlation, not RMSE, since ranking — not absolute score — is what lineup selection needs.
+   `temporal_cv()` always trains on seasons < N and tests on season N; **never switch this to a
+   random split** — the rolling features would leak future data across the season boundary.
+
+5. **`scrape.py`** — hits the PGA Tour GraphQL API directly (`orchestrator.pgatour.com/graphql`);
+   the old stats-download CSV endpoint stopped working mid-2025. `build_weekly_features()` builds
+   the live weekly feature matrix that `predict.py` scores.
+
+6. **`predict.py`** — scores a weekly field with the saved model, writing
+   `projections.csv` (or `projections_links.csv`) into the tournament folder.
+
+7. **`buzz.py`** + **`optimizer.py`** — `buzz.py` fetches/parses Buzz Fantasy Golf salaries (cookie-
+   authenticated API, or a manual CSV) and normalizes player names (strips accents/punctuation,
+   converts "Last, First" → "first last") so they join against projections by fuzzy name match.
+   `optimizer.py` is a PuLP integer program maximizing projected prize share under a salary cap,
+   supporting locked/excluded players and generating N alternative lineups (each differing from
+   every prior one by at least 1 player). Lineup files land in the same tournament folder; distinct
+   lock/exclude runs get encoded filenames so they don't overwrite each other.
+
+## Conventions
+
+- Add new paths to `src/paths.py`, never as inline string literals.
+- Preserve the `shift(1)`-before-window leakage guard in `features.py`.
+- Keep temporal (not random) splits anywhere the model touches season boundaries.
+- The model targets `prize_pct` (share of purse), bucketed to relevance grades — not raw
+  DraftKings points and not regression.

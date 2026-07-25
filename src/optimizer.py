@@ -43,8 +43,8 @@ from pulp import (
 )
 
 from src.buzz import load_salaries, normalize_name
+from src.paths import PROCESSED_DIR
 
-PROCESSED_DIR    = Path("data/processed")
 DEFAULT_BUDGET   = 1_650_000
 N_PLAYERS        = 6
 
@@ -270,7 +270,7 @@ def _lineups_filename(locks: List[str], excludes: List[str]) -> str:
     return "lineups_" + "__".join(parts) + ".csv"
 
 
-def export_csv(lineups: List[pd.DataFrame], out_path: Path = Path("data/processed/lineups.csv")) -> None:
+def export_csv(lineups: List[pd.DataFrame], out_path: Path = PROCESSED_DIR / "lineups.csv") -> None:
     """Save all lineups to a CSV for record-keeping."""
     rows = []
     for k, lineup in enumerate(lineups, 1):

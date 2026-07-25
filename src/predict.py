@@ -2,11 +2,12 @@
 Score the upcoming tournament field with the trained model.
 
 Usage:
-    python -m src.predict --tournament R2026030   # scrape fresh field then score
-    python -m src.predict --top 20                # re-score most recent saved features
-    python -m src.predict --tournament R2026030 --top 30
+    python -m src.predict --tournament R2026030          # base model
+    python -m src.predict --tournament R2026100 --links  # links-tuned model
+    python -m src.predict --top 20                       # re-score most recent saved features
 
 Output is saved to data/processed/{tournament_id}_{slug}/projections.csv
+For links model: projections_links.csv in the same folder.
 """
 
 from __future__ import annotations
@@ -18,14 +19,23 @@ from typing import Optional
 
 import pandas as pd
 
-from src.model import FEATURE_COLS, MODEL_PATH, load
-
-PROCESSED_DIR = Path("data/processed")
+from src.model import FEATURE_COLS, FEATURE_COLS_LINKS, load
+from src.paths import PROCESSED_DIR, HISTORICAL_CSV
 
 
 def _tournament_dir(tournament_id: str, tournament_name: str) -> Path:
     slug = re.sub(r"[^a-z0-9]+", "_", tournament_name.lower()).strip("_")
     return PROCESSED_DIR / f"{tournament_id}_{slug}"
+
+
+def _latest_features() -> Optional[Path]:
+    """Return the most recently modified weekly_features.parquet across all tournament folders."""
+    candidates = sorted(
+        PROCESSED_DIR.glob("*/weekly_features.parquet"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
 
 
 def _latest_projections() -> Optional[Path]:
@@ -40,13 +50,15 @@ def _latest_projections() -> Optional[Path]:
 
 def predict(
     weekly_df: pd.DataFrame,
-    model_path: Path = MODEL_PATH,
+    links: bool = False,
 ) -> pd.DataFrame:
     """
     Score a weekly feature DataFrame.
-    Returns a DataFrame with player_id, player_name, projected_dk_points, rank.
+    links=True uses the links-tuned model and FEATURE_COLS_LINKS.
+    Returns a DataFrame with player_id, player_name, projected_prize_pct, rank.
     """
-    model = load(model_path)
+    model = load(links=links)
+    feature_cols = FEATURE_COLS_LINKS if links else FEATURE_COLS
 
     trained_features = list(model.feature_names_in_)
     missing = [c for c in trained_features if c not in weekly_df.columns]
@@ -79,18 +91,18 @@ def main() -> None:
         help="Tournament ID to scrape a fresh field for (e.g. R2026030). "
              "If omitted, re-scores the most recently saved features."
     )
-    parser.add_argument("--top", type=int, default=None, help="Show only top N players")
+    parser.add_argument("--top",   type=int, default=None, help="Show only top N players")
+    parser.add_argument("--links", action="store_true",
+                        help="Use the links-tuned model (model_links.pkl)")
     args = parser.parse_args()
 
     if args.tournament:
         from src.ingest import load_historical
-        from src.scrape import build_weekly_features, get_upcoming_tournaments
+        from src.scrape import build_weekly_features
 
-        hist_path = Path("14-22 practice data.csv")
-        hist = load_historical(hist_path) if hist_path.exists() else None
+        hist = load_historical(HISTORICAL_CSV) if HISTORICAL_CSV.exists() else None
         weekly_df = build_weekly_features(args.tournament, historical_df=hist)
 
-        # Derive output directory from tournament metadata
         t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else args.tournament
         out_dir = _tournament_dir(args.tournament, t_name)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -99,14 +111,7 @@ def main() -> None:
         weekly_df.to_parquet(features_path, index=False)
         print(f"Saved fresh weekly features → {features_path}\n")
     else:
-        latest = _latest_projections()
-        # Try to find matching features parquet
-        features_path = None
-        if latest:
-            candidate = latest.parent / "weekly_features.parquet"
-            if candidate.exists():
-                features_path = candidate
-        # Fall back to legacy flat path
+        features_path = _latest_features()
         legacy = PROCESSED_DIR / "weekly_features.parquet"
         if features_path is None and legacy.exists():
             features_path = legacy
@@ -117,35 +122,38 @@ def main() -> None:
         weekly_df = pd.read_parquet(features_path)
 
         t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else "unknown"
-        t_id = weekly_df["tournament_id"].iloc[0] if "tournament_id" in weekly_df.columns else "unknown"
+        t_id   = weekly_df["tournament_id"].iloc[0]   if "tournament_id"   in weekly_df.columns else "unknown"
         out_dir = _tournament_dir(t_id, t_name)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Drop players with no recent SG data (all-NaN → unreliable model output)
-    sg_cols = [c for c in FEATURE_COLS if "sg_" in c and c in weekly_df.columns]
+    # Drop players with no recent SG data
+    feature_cols = FEATURE_COLS_LINKS if args.links else FEATURE_COLS
+    sg_cols = [c for c in feature_cols if "sg_" in c and c in weekly_df.columns]
     has_data = weekly_df[sg_cols].notna().any(axis=1) if sg_cols else pd.Series(True, index=weekly_df.index)
     dropped = (~has_data).sum()
     if dropped:
         print(f"Excluding {dropped} players with no recent SG data (amateurs/qualifiers).")
     weekly_df = weekly_df[has_data].reset_index(drop=True)
 
-    projections = predict(weekly_df)
+    projections = predict(weekly_df, links=args.links)
 
-    proj_path = out_dir / "projections.csv"
+    proj_filename = "projections_links.csv" if args.links else "projections.csv"
+    proj_path = out_dir / proj_filename
     projections.to_csv(proj_path, index=False)
 
     # Print
+    model_label = "[LINKS MODEL]" if args.links else "[BASE MODEL]"
     display = projections if args.top is None else projections.head(args.top)
     tournament = projections["tournament_name"].iloc[0] if "tournament_name" in projections.columns else "Unknown"
-    course = projections["course"].iloc[0] if "course" in projections.columns else ""
-    print(f"\n{'='*60}")
-    print(f"  {tournament}  |  {course}")
-    print(f"{'='*60}")
-    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Proj. Prize %':<14}")
-    print("-" * 58)
+    course     = projections["course"].iloc[0]          if "course"           in projections.columns else ""
+    print(f"\n{'='*64}")
+    print(f"  {tournament}  |  {course}  {model_label}")
+    print(f"{'='*64}")
+    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Proj. Score':<14}")
+    print("-" * 60)
     for _, row in display.iterrows():
         owgr = f"#{int(row['owgr'])}" if pd.notna(row.get("owgr")) else "—"
-        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['projected_prize_pct']*100:>6.2f}%")
+        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['projected_prize_pct']*100:>7.2f}%")
 
     print(f"\nFull projections saved → {proj_path}")
 

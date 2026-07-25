@@ -20,12 +20,11 @@ import pandas as pd
 
 from src.ingest import load_historical, load_scraped, combine
 from src.features import build_features, feature_columns
+from src.paths import HISTORICAL_CSV, SCRAPED_DIR, FEATURE_MATRIX
 
-# ── Default paths (relative to repo root) ─────────────────────────────────────
+# ── Default paths ─────────────────────────────────────────────────────────────
 
-HISTORICAL_CSV = Path("14-22 practice data.csv")
-SCRAPED_DIR = Path("data/raw/scraped")
-OUTPUT_PATH = Path("data/processed/feature_matrix.parquet")
+OUTPUT_PATH = FEATURE_MATRIX
 
 
 def run(

@@ -1,13 +1,13 @@
 # Raw and processed data — too large / regenerable
-14-22 practice data.csv
 data/processed/*
 !data/processed/.gitkeep
 data/raw/*
 !data/raw/.gitkeep
 
+# Trained models — regenerable via `python -m src.model`
+models/
+
 # Salary files (personal league data)
-test_salary.csv
-test_salary.rtf
 salaries*.csv
 
 # Python

@@ -397,6 +397,31 @@ def build_weekly_features(
                 row["course_sg_hist"] = player_course["sg_total_per_round"].mean()
                 row["course_starts"] = len(player_course)
 
+        # ── Links history ─────────────────────────────────────────────────────
+        # Combine API history (last 10 events) with historical CSV data.
+        # The API captures recent Scottish Opens and The Open; the historical CSV
+        # has The Open entries but sg_total_per_round is NaN there, so net signal
+        # comes almost entirely from the API.
+        from src.features import is_links_tournament
+        links_sg_vals = []
+        if not history.empty and "tournament_name" in history.columns and "sg_total" in history.columns:
+            # tournament_name may be a duplicate column (DataFrame), so squeeze to Series
+            t_names = history["tournament_name"]
+            if isinstance(t_names, pd.DataFrame):
+                t_names = t_names.iloc[:, 0]
+            sg_totals = history["sg_total"]
+            for name, sg in zip(t_names.tolist(), sg_totals.tolist()):
+                if is_links_tournament(str(name)) and pd.notna(sg):
+                    links_sg_vals.append(float(sg))
+        if historical_df is not None and "tournament_name" in historical_df.columns:
+            player_hist = historical_df[historical_df["player_id"] == pid]
+            hist_links_mask = player_hist["tournament_name"].apply(is_links_tournament)
+            hist_links_sg = player_hist.loc[hist_links_mask, "sg_total_per_round"].dropna()
+            links_sg_vals.extend(hist_links_sg.tolist())
+        if links_sg_vals:
+            row["links_sg_hist"] = float(sum(links_sg_vals) / len(links_sg_vals))
+            row["links_starts"]  = len(links_sg_vals)
+
         rows.append(row)
 
     return pd.DataFrame(rows)
@@ -406,11 +431,10 @@ def build_weekly_features(
 
 if __name__ == "__main__":
     import sys
-    from pathlib import Path
     from src.ingest import load_historical
+    from src.paths import HISTORICAL_CSV, PROCESSED_DIR
 
-    hist_path = Path("14-22 practice data.csv")
-    hist = load_historical(hist_path) if hist_path.exists() else None
+    hist = load_historical(HISTORICAL_CSV) if HISTORICAL_CSV.exists() else None
 
     upcoming = get_upcoming_tournaments(1)
     if not upcoming:
@@ -423,7 +447,7 @@ if __name__ == "__main__":
     print(f"ID:   {next_t['tournament_id']}\n")
 
     df = build_weekly_features(next_t["tournament_id"], historical_df=hist)
-    out = Path("data/processed/weekly_features.parquet")
+    out = PROCESSED_DIR / "weekly_features.parquet"
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
     print(f"\nSaved {len(df)} rows → {out}")
