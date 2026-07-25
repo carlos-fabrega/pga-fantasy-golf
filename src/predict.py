@@ -2,9 +2,10 @@
 Score the upcoming tournament field with the trained model.
 
 Usage:
-    python -m src.predict --tournament R2026030          # base model
-    python -m src.predict --tournament R2026100 --links  # links-tuned model
-    python -m src.predict --top 20                       # re-score most recent saved features
+    python -m src.predict                       # auto-detect next event; links model auto-selected
+    python -m src.predict --tournament R2026030 # score a specific event
+    python -m src.predict --no-links            # force the base model on a links event
+    python -m src.predict --latest              # re-score most recent saved features (no scrape)
 
 Output is saved to data/processed/{tournament_id}_{slug}/projections.csv
 For links model: projections_links.csv in the same folder.
@@ -20,6 +21,7 @@ from typing import Optional
 import pandas as pd
 
 from src.model import FEATURE_COLS, FEATURE_COLS_LINKS, load
+from src.features import is_links_tournament
 from src.paths import PROCESSED_DIR, HISTORICAL_CSV
 
 
@@ -58,7 +60,6 @@ def predict(
     Returns a DataFrame with player_id, player_name, projected_prize_pct, rank.
     """
     model = load(links=links)
-    feature_cols = FEATURE_COLS_LINKS if links else FEATURE_COLS
 
     trained_features = list(model.feature_names_in_)
     missing = [c for c in trained_features if c not in weekly_df.columns]
@@ -89,12 +90,30 @@ def main() -> None:
     parser.add_argument(
         "--tournament", default=None,
         help="Tournament ID to scrape a fresh field for (e.g. R2026030). "
-             "If omitted, re-scores the most recently saved features."
+             "If omitted, auto-detects the next upcoming event."
     )
     parser.add_argument("--top",   type=int, default=None, help="Show only top N players")
-    parser.add_argument("--links", action="store_true",
-                        help="Use the links-tuned model (model_links.pkl)")
+    # Tri-state links: --links forces on, --no-links forces off, neither = auto-detect.
+    parser.add_argument("--links",    dest="links", action="store_true",
+                        help="Force the links-tuned model on.")
+    parser.add_argument("--no-links", dest="links", action="store_false",
+                        help="Force the base model, even on a links event.")
+    parser.set_defaults(links=None)
+    parser.add_argument("--latest", action="store_true",
+                        help="Re-score the most recently saved weekly features instead of "
+                             "scraping a fresh field.")
     args = parser.parse_args()
+
+    # Auto-detect the next upcoming event when no tournament is given and we're not re-scoring.
+    if not args.tournament and not args.latest:
+        from src.scrape import get_upcoming_tournaments
+        upcoming = get_upcoming_tournaments(1)
+        if not upcoming:
+            print("No upcoming tournaments found. Pass --tournament <id> explicitly.")
+            return
+        args.tournament = upcoming[0]["tournament_id"]
+        print(f"Auto-detected next event: {upcoming[0]['tournament_name']} "
+              f"@ {upcoming[0]['course']}  ({args.tournament})\n")
 
     if args.tournament:
         from src.ingest import load_historical
@@ -126,8 +145,15 @@ def main() -> None:
         out_dir = _tournament_dir(t_id, t_name)
         out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Decide base vs links model: honor an explicit --links/--no-links, else auto-detect
+    # from the tournament name (Open/Scottish/Dunhill/Irish).
+    t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else ""
+    use_links = args.links if args.links is not None else is_links_tournament(t_name)
+    if args.links is None and use_links:
+        print(f"'{t_name}' is a links event → using the links-tuned model.\n")
+
     # Drop players with no recent SG data
-    feature_cols = FEATURE_COLS_LINKS if args.links else FEATURE_COLS
+    feature_cols = FEATURE_COLS_LINKS if use_links else FEATURE_COLS
     sg_cols = [c for c in feature_cols if "sg_" in c and c in weekly_df.columns]
     has_data = weekly_df[sg_cols].notna().any(axis=1) if sg_cols else pd.Series(True, index=weekly_df.index)
     dropped = (~has_data).sum()
@@ -135,14 +161,14 @@ def main() -> None:
         print(f"Excluding {dropped} players with no recent SG data (amateurs/qualifiers).")
     weekly_df = weekly_df[has_data].reset_index(drop=True)
 
-    projections = predict(weekly_df, links=args.links)
+    projections = predict(weekly_df, links=use_links)
 
-    proj_filename = "projections_links.csv" if args.links else "projections.csv"
+    proj_filename = "projections_links.csv" if use_links else "projections.csv"
     proj_path = out_dir / proj_filename
     projections.to_csv(proj_path, index=False)
 
     # Print
-    model_label = "[LINKS MODEL]" if args.links else "[BASE MODEL]"
+    model_label = "[LINKS MODEL]" if use_links else "[BASE MODEL]"
     display = projections if args.top is None else projections.head(args.top)
     tournament = projections["tournament_name"].iloc[0] if "tournament_name" in projections.columns else "Unknown"
     course     = projections["course"].iloc[0]          if "course"           in projections.columns else ""

@@ -26,7 +26,6 @@ Two modes:
 from __future__ import annotations
 
 import unicodedata
-from io import StringIO
 from pathlib import Path
 from typing import Optional
 

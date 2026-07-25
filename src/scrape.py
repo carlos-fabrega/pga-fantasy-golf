@@ -333,7 +333,6 @@ def build_weekly_features(
     # Historical CSV stores: "Muirfield Village Golf Club - Dublin, OH"
     # API returns:           "Muirfield Village Golf Club"
     # Normalize: take text before " - " or "," and lowercase.
-    hist_course_map: dict = {}
     if historical_df is not None and "course" in historical_df.columns:
         def _normalize_course(name: str) -> str:
             return str(name).split(" - ")[0].split(",")[0].strip().lower()

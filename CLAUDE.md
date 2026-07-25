@@ -29,11 +29,16 @@ python -m src.model --cv      # expanding-window temporal CV report only (no sav
 
 Weekly, before a tournament:
 ```bash
-python -m src.predict --tournament R2026030          # scrape live field, score with base model
-python -m src.predict --tournament R2026100 --links  # links-tuned model (Open/Scottish/Dunhill/Irish)
+python -m src.predict                        # auto-detect next event; links model auto-selected
+python -m src.predict --tournament R2026030  # score a specific event instead
+python -m src.predict --no-links             # force the base model on a links event
+python -m src.predict --latest               # re-score most recent saved features (no scrape)
 python -m src.optimizer --csv data/processed/R2026030_john_deere_classic/salaries.csv \
                         --budget 1650000 --lineups 3
 ```
+
+`predict` defaults to the next upcoming event (via the PGA API) and auto-selects the links model
+for Open/Scottish/Dunhill/Irish — pass `--tournament`, `--no-links`, or `--links` to override.
 
 There is no automated test suite. Verify changes by re-running `python -m src.model --cv` and
 checking the mean Spearman rank correlation (≈0.26 is normal), or by running predict → optimizer

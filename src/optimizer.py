@@ -239,7 +239,7 @@ def display_lineups(
         print(f"  {'TOTAL':<28}{'':8}{_fmt_salary(total_salary):<12}{total_proj*100:.2f}%")
 
     # Value board: prize % per $M of salary
-    print(f"\n── Value Board (proj. prize % per $M salary) ──")
+    print("\n── Value Board (proj. prize % per $M salary) ──")
     merged_df = merged_df.copy()
     merged_df["value"] = (merged_df["projected_prize_pct"] / merged_df["salary"] * 1_000_000).round(4)
     top_value = merged_df.nlargest(15, "value")[["player_name", "salary", "projected_prize_pct", "value"]]
