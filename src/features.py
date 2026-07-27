@@ -80,6 +80,24 @@ def _ewm_mean(series: pd.Series, window: int) -> pd.Series:
     return series.shift(1).ewm(span=window, min_periods=max(1, window // 4)).mean()
 
 
+def _trailing_valid_mean(series: pd.Series, window: int) -> pd.Series:
+    """
+    Leakage-safe flat mean of up to the `window` most-recent NON-NULL values that
+    occur strictly before each row.
+
+    This matches inference exactly: scrape.build_weekly_features computes SG
+    rolling features as the flat mean of a player's last N *SG-recorded* (made-cut)
+    events. Rolling over the raw positional series instead would average over
+    calendar starts and let missed-cut NaN gaps skew the window, diverging from
+    what the live API can produce. See tests/test_feature_parity.py.
+    """
+    valid = series.dropna()
+    trailing = valid.rolling(window, min_periods=1).mean().shift(1)
+    # Map back to every row; carry the last known trailing mean across missed-cut
+    # rows (which have no SG of their own) so they still carry recent form.
+    return trailing.reindex(series.index).ffill()
+
+
 # ── Rolling SG averages ────────────────────────────────────────────────────────
 
 def add_rolling_sg(
@@ -100,8 +118,9 @@ def add_rolling_sg(
     for col in present_sg:
         for w in windows:
             feature_name = f"{col}_roll{w}"
+            # Flat trailing mean over SG-recorded events, matching inference.
             df[feature_name] = df.groupby("player_id")[col].transform(
-                lambda x, w=w: _ewm_mean(x, w)
+                lambda x, w=w: _trailing_valid_mean(x, w)
             )
 
     return df.drop(columns=["_order"]).reset_index(drop=True)
