@@ -27,7 +27,8 @@ import pandas as pd
 from scipy.stats import spearmanr
 from xgboost import XGBRanker
 
-from src.paths import MODEL_BASE_PATH, MODEL_LINKS_PATH, FEATURE_MATRIX
+from src.features import is_playoff_tournament
+from src.paths import MODEL_BASE_PATH, MODEL_LINKS_PATH, MODEL_PLAYOFF_PATH, FEATURE_MATRIX
 
 # ── Feature / target config ────────────────────────────────────────────────────
 
@@ -44,12 +45,36 @@ FEATURE_COLS: List[str] = [
     "course_starts",
     "made_cut_rate_roll8",  "made_cut_rate_roll16",  "made_cut_rate_roll24",
     "starts_last8",
+    # Historical performance at FedEx Cup Playoff events (BMW, Tour Championship,
+    # pre-2019 Barclays/Dell Technologies/Deutsche Bank, WGC-FedEx St. Jude).
+    # Included in the base feature set (available for every prediction, not just
+    # playoff weeks) since it's a cheap, always-computable signal.
+    "playoff_sg_hist", "playoff_starts",
 ]
 
 # Links model adds historical performance across all links courses as a signal.
 # links_sg_hist: player's average SG total per round at links venues (all-time).
 # links_starts:  number of prior links starts (confidence weight for the above).
 FEATURE_COLS_LINKS: List[str] = FEATURE_COLS + ["links_sg_hist", "links_starts"]
+
+# Playoff model reuses the base feature set — playoff_sg_hist/playoff_starts are
+# already in FEATURE_COLS above. What distinguishes this variant is the training
+# *rows*: prepare() restricts to FedEx Cup Playoff tournaments only (see below),
+# unlike the links model which trains on the full dataset with links features as
+# just two extra optional columns.
+FEATURE_COLS_PLAYOFF: List[str] = FEATURE_COLS
+
+# Maps a variant name to its feature set / model path, used throughout this module.
+VARIANT_FEATURES: Dict[str, List[str]] = {
+    "base": FEATURE_COLS,
+    "links": FEATURE_COLS_LINKS,
+    "playoff": FEATURE_COLS_PLAYOFF,
+}
+VARIANT_PATHS = {
+    "base": MODEL_BASE_PATH,
+    "links": MODEL_LINKS_PATH,
+    "playoff": MODEL_PLAYOFF_PATH,
+}
 
 TARGET_COL = "prize_pct"
 
@@ -98,11 +123,19 @@ def _make_model(n_estimators: int = 800) -> XGBRanker:
 
 # ── Data prep ──────────────────────────────────────────────────────────────────
 
-def prepare(df: pd.DataFrame, links: bool = False) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
+def prepare(df: pd.DataFrame, variant: str = "base") -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
     """
     Return (X, y, groups) for the LambdaRank model.
 
-    links=True uses FEATURE_COLS_LINKS (adds links_sg_hist, links_starts).
+    variant="links" uses FEATURE_COLS_LINKS (adds links_sg_hist, links_starts),
+    trained on the full dataset like "base" — the links columns are just two
+    extra optional features.
+
+    variant="playoff" additionally restricts training rows to FedEx Cup Playoff
+    tournaments only (BMW Championship, Tour Championship, etc.) — a genuine
+    row subset, not just extra columns, since the goal is a model calibrated to
+    playoff-strength fields specifically.
+
     All rows with a non-null target and at least one non-null SG feature are
     included — missed-cut players (prize_pct=0) are valid lowest-relevance
     examples that help the model learn to rank them below made-cut players.
@@ -110,11 +143,13 @@ def prepare(df: pd.DataFrame, links: bool = False) -> Tuple[pd.DataFrame, pd.Ser
     Data is sorted by tournament_id so XGBRanker's group array is contiguous.
     groups[i] = number of rows belonging to tournament i.
     """
-    feature_cols = FEATURE_COLS_LINKS if links else FEATURE_COLS
+    feature_cols = VARIANT_FEATURES[variant]
 
     has_target = df[TARGET_COL].notna()
     has_any_sg = df[[c for c in feature_cols if "sg_" in c and c in df.columns]].notna().any(axis=1)
     mask = has_target & has_any_sg
+    if variant == "playoff":
+        mask &= df["tournament_name"].apply(is_playoff_tournament)
 
     sub = df[mask].copy()
     # Must be sorted by tournament so groups are contiguous blocks
@@ -159,13 +194,13 @@ def evaluate(
     model: XGBRanker,
     df_test: pd.DataFrame,
     label: str = "Test",
-    links: bool = False,
+    variant: str = "base",
 ) -> Dict[str, float]:
     """
     Evaluate a fitted model on df_test.
     Returns a dict of scalar metrics and prints a summary.
     """
-    X_test, y_test, _ = prepare(df_test, links=links)
+    X_test, y_test, _ = prepare(df_test, variant=variant)
     if X_test.empty:
         print(f"[{label}] No valid rows to evaluate.")
         return {}
@@ -201,11 +236,15 @@ def evaluate(
 
 # ── Temporal cross-validation ──────────────────────────────────────────────────
 
-def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, links: bool = False) -> List[Dict]:
+def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, variant: str = "base") -> List[Dict]:
     """
     Expanding-window temporal CV.
     For each season S (starting after min_train_seasons), train on all seasons
     < S and test on season S. Reports metrics per fold.
+
+    For variant="playoff", both train and test rows are restricted to playoff
+    tournaments by prepare(), so folds cover far fewer rows/tournaments than
+    base or links — expect noisier per-fold metrics.
     """
     seasons = sorted(df["season"].unique())
     results = []
@@ -218,14 +257,14 @@ def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, links: bool = Fals
         df_train = df[df["season"].isin(train_seasons)]
         df_test  = df[df["season"] == test_season]
 
-        X_train, y_train, groups_train = prepare(df_train, links=links)
+        X_train, y_train, groups_train = prepare(df_train, variant=variant)
         if X_train.empty:
             continue
 
         model = _make_model()
         model.fit(X_train, y_train, group=groups_train)
 
-        metrics = evaluate(model, df_test, label=f"Test {test_season} (train {train_seasons[0]}-{train_seasons[-1]})", links=links)
+        metrics = evaluate(model, df_test, label=f"Test {test_season} (train {train_seasons[0]}-{train_seasons[-1]})", variant=variant)
         metrics["test_season"] = test_season
         metrics["train_seasons"] = train_seasons
         results.append(metrics)
@@ -235,28 +274,28 @@ def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, links: bool = Fals
 
 # ── Training & saving ──────────────────────────────────────────────────────────
 
-def train_final(df: pd.DataFrame, links: bool = False) -> XGBRanker:
+def train_final(df: pd.DataFrame, variant: str = "base") -> XGBRanker:
     """Train on all available seasons and return the fitted model."""
-    X, y, groups = prepare(df, links=links)
+    X, y, groups = prepare(df, variant=variant)
     model = _make_model()
     model.fit(X, y, group=groups)
     return model
 
 
-def save(model: XGBRanker, links: bool = False) -> None:
-    path = MODEL_LINKS_PATH if links else MODEL_BASE_PATH
+def save(model: XGBRanker, variant: str = "base") -> None:
+    path = VARIANT_PATHS[variant]
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         pickle.dump(model, f)
     print(f"Model saved → {path}")
 
 
-def load(links: bool = False) -> XGBRanker:
-    path = MODEL_LINKS_PATH if links else MODEL_BASE_PATH
-    if not path.exists() and links:
+def load(variant: str = "base") -> XGBRanker:
+    path = VARIANT_PATHS[variant]
+    if not path.exists() and variant != "base":
         raise FileNotFoundError(
-            f"Links model not found at {path}. "
-            "Run `python -m src.model --links` to train it first."
+            f"{variant.capitalize()} model not found at {path}. "
+            f"Run `python -m src.model --{variant}` to train it first."
         )
     with open(path, "rb") as f:
         return pickle.load(f)
@@ -264,8 +303,8 @@ def load(links: bool = False) -> XGBRanker:
 
 # ── Feature importances ────────────────────────────────────────────────────────
 
-def feature_importance(model: XGBRanker, top_n: int = 20) -> pd.Series:
-    present = [c for c in FEATURE_COLS if c in model.feature_names_in_]
+def feature_importance(model: XGBRanker, variant: str = "base", top_n: int = 20) -> pd.Series:
+    present = [c for c in VARIANT_FEATURES[variant] if c in model.feature_names_in_]
     imp = pd.Series(
         model.feature_importances_,
         index=model.feature_names_in_,
@@ -280,20 +319,26 @@ if __name__ == "__main__":
     parser.add_argument("--cv",    action="store_true", help="Run temporal CV")
     parser.add_argument("--links", action="store_true",
                         help="Train/evaluate the links-tuned model (adds links_sg_hist, links_starts)")
+    parser.add_argument("--playoff", action="store_true",
+                        help="Train/evaluate the FedEx Cup Playoff-tuned model "
+                             "(trained only on BMW/Tour Championship/etc. rows)")
     parser.add_argument(
         "--data", default=str(FEATURE_MATRIX),
         help="Path to feature matrix parquet"
     )
     args = parser.parse_args()
+    if args.links and args.playoff:
+        parser.error("--links and --playoff are mutually exclusive.")
+    variant = "links" if args.links else "playoff" if args.playoff else "base"
 
-    label_suffix = " [LINKS]" if args.links else " [BASE]"
+    label_suffix = f" [{variant.upper()}]"
     df = pd.read_parquet(args.data)
     seasons = sorted(df["season"].unique())
     print(f"Loaded {len(df):,} rows | seasons {seasons[0]}–{seasons[-1]}{label_suffix}")
 
     if args.cv:
         print(f"\n=== Temporal Cross-Validation (expanding window){label_suffix} ===")
-        cv_results = temporal_cv(df, links=args.links)
+        cv_results = temporal_cv(df, variant=variant)
         if cv_results:
             cv_df = pd.DataFrame(cv_results)
             print(f"\nCV Summary across {len(cv_df)} folds:")
@@ -310,21 +355,21 @@ if __name__ == "__main__":
         print(f"\nTrain: {train_seasons[0]}–{train_seasons[-1]} ({len(df_train):,} rows)")
         print(f"Test:  {test_season} ({len(df_test):,} rows)")
 
-        X_train, y_train, groups_train = prepare(df_train, links=args.links)
+        X_train, y_train, groups_train = prepare(df_train, variant=variant)
         print(f"Training on {len(X_train):,} rows × {len(X_train.columns)} features ...")
         model = _make_model()
         model.fit(X_train, y_train, group=groups_train)
 
-        evaluate(model, df_train, label=f"Train {train_seasons[0]}–{train_seasons[-1]}", links=args.links)
-        evaluate(model, df_test,  label=f"Test {test_season}", links=args.links)
+        evaluate(model, df_train, label=f"Train {train_seasons[0]}–{train_seasons[-1]}", variant=variant)
+        evaluate(model, df_test,  label=f"Test {test_season}", variant=variant)
 
         print("\n── Feature Importances (top 15) ──")
-        imp = feature_importance(model, top_n=15)
+        imp = feature_importance(model, variant=variant, top_n=15)
         for feat, score in imp.items():
             bar = "█" * int(score * 200)
             print(f"  {feat:<45} {score:.4f}  {bar}")
 
         # Retrain on all seasons for production use
         print(f"\nRetraining on all {len(seasons)} seasons for production ...")
-        model_final = train_final(df, links=args.links)
-        save(model_final, links=args.links)
+        model_final = train_final(df, variant=variant)
+        save(model_final, variant=variant)

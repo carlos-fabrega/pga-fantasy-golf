@@ -20,7 +20,7 @@ from typing import Optional
 
 import pandas as pd
 
-from src.model import FEATURE_COLS, FEATURE_COLS_LINKS, load
+from src.model import VARIANT_FEATURES, load
 from src.features import is_links_tournament
 from src.paths import PROCESSED_DIR, HISTORICAL_CSV
 
@@ -52,14 +52,14 @@ def _latest_projections() -> Optional[Path]:
 
 def predict(
     weekly_df: pd.DataFrame,
-    links: bool = False,
+    variant: str = "base",
 ) -> pd.DataFrame:
     """
     Score a weekly feature DataFrame.
-    links=True uses the links-tuned model and FEATURE_COLS_LINKS.
+    variant selects the model/feature set ("base", "links", or "playoff").
     Returns a DataFrame with player_id, player_name, projected_prize_pct, rank.
     """
-    model = load(links=links)
+    model = load(variant=variant)
 
     trained_features = list(model.feature_names_in_)
     missing = [c for c in trained_features if c not in weekly_df.columns]
@@ -93,12 +93,17 @@ def main() -> None:
              "If omitted, auto-detects the next upcoming event."
     )
     parser.add_argument("--top",   type=int, default=None, help="Show only top N players")
-    # Tri-state links: --links forces on, --no-links forces off, neither = auto-detect.
+    # Tri-state links/playoff: explicit flag forces on/off, neither = auto-detect.
     parser.add_argument("--links",    dest="links", action="store_true",
                         help="Force the links-tuned model on.")
     parser.add_argument("--no-links", dest="links", action="store_false",
                         help="Force the base model, even on a links event.")
     parser.set_defaults(links=None)
+    parser.add_argument("--playoff",    dest="playoff", action="store_true",
+                        help="Force the FedEx Cup Playoff-tuned model on.")
+    parser.add_argument("--no-playoff", dest="playoff", action="store_false",
+                        help="Force the base model, even on a playoff event.")
+    parser.set_defaults(playoff=None)
     parser.add_argument("--latest", action="store_true",
                         help="Re-score the most recently saved weekly features instead of "
                              "scraping a fresh field.")
@@ -145,15 +150,29 @@ def main() -> None:
         out_dir = _tournament_dir(t_id, t_name)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Decide base vs links model: honor an explicit --links/--no-links, else auto-detect
-    # from the tournament name (Open/Scottish/Dunhill/Irish).
+    # Decide base vs links vs playoff model: honor an explicit --links/--playoff
+    # override, else auto-detect links only (Open/Scottish/Dunhill/Irish).
+    # NOTE: the playoff variant is NOT auto-selected for BMW/Tour Championship —
+    # backtesting (see src/model.py FEATURE_COLS_PLAYOFF comment) showed it
+    # underperforms the base model on held-out playoff seasons (too little
+    # training data: ~23 historical playoff editions). Pass --playoff explicitly
+    # to use it anyway.
     t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else ""
-    use_links = args.links if args.links is not None else is_links_tournament(t_name)
-    if args.links is None and use_links:
+    if args.links is True:
+        variant = "links"
+    elif args.playoff is True:
+        variant = "playoff"
+    elif args.links is False or args.playoff is False:
+        variant = "base"
+    elif is_links_tournament(t_name):
+        variant = "links"
+    else:
+        variant = "base"
+    if args.links is None and variant != "base":
         print(f"'{t_name}' is a links event → using the links-tuned model.\n")
 
     # Drop players with no recent SG data
-    feature_cols = FEATURE_COLS_LINKS if use_links else FEATURE_COLS
+    feature_cols = VARIANT_FEATURES[variant]
     sg_cols = [c for c in feature_cols if "sg_" in c and c in weekly_df.columns]
     has_data = weekly_df[sg_cols].notna().any(axis=1) if sg_cols else pd.Series(True, index=weekly_df.index)
     dropped = (~has_data).sum()
@@ -161,14 +180,14 @@ def main() -> None:
         print(f"Excluding {dropped} players with no recent SG data (amateurs/qualifiers).")
     weekly_df = weekly_df[has_data].reset_index(drop=True)
 
-    projections = predict(weekly_df, links=use_links)
+    projections = predict(weekly_df, variant=variant)
 
-    proj_filename = "projections_links.csv" if use_links else "projections.csv"
+    proj_filename = "projections.csv" if variant == "base" else f"projections_{variant}.csv"
     proj_path = out_dir / proj_filename
     projections.to_csv(proj_path, index=False)
 
     # Print
-    model_label = "[LINKS MODEL]" if use_links else "[BASE MODEL]"
+    model_label = f"[{variant.upper()} MODEL]"
     display = projections if args.top is None else projections.head(args.top)
     tournament = projections["tournament_name"].iloc[0] if "tournament_name" in projections.columns else "Unknown"
     course     = projections["course"].iloc[0]          if "course"           in projections.columns else ""

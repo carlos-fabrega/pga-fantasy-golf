@@ -22,5 +22,6 @@ FEATURE_MATRIX = PROCESSED_DIR / "feature_matrix.parquet"
 
 # ── Trained models ────────────────────────────────────────────────────────────
 MODELS_DIR       = PROJECT_ROOT / "models"
-MODEL_BASE_PATH  = MODELS_DIR / "model_base.pkl"
-MODEL_LINKS_PATH = MODELS_DIR / "model_links.pkl"
+MODEL_BASE_PATH    = MODELS_DIR / "model_base.pkl"
+MODEL_LINKS_PATH   = MODELS_DIR / "model_links.pkl"
+MODEL_PLAYOFF_PATH = MODELS_DIR / "model_playoff.pkl"

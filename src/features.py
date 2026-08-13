@@ -34,6 +34,31 @@ def is_links_tournament(tournament_name: str) -> bool:
     return any(p in name for p in _LINKS_PATTERNS)
 
 
+# Substrings matched against lowercase tournament_name to identify FedEx Cup
+# Playoff events (small, no-cut, elite-only fields). Covers the pre-2019
+# 4-event format (Barclays/Deutsche Bank or Dell Technologies/BMW/Tour
+# Championship) and the WGC-branded 2019 St. Jude edition, all of which are
+# safe historical-CSV matches. "fedex st. jude championship" is included for
+# live/scraped data only — that exact name (post-2022 rebrand as the modern
+# playoff opener) never appears in the 2014-2022 historical CSV, so it can't
+# collide with the unrelated regular-season "FedEx St. Jude Classic" rows.
+_PLAYOFF_PATTERNS = [
+    "bmw championship",
+    "tour championship",
+    "the barclays",
+    "dell technologies championship",
+    "deutsche bank championship",
+    "wgc-fedex st. jude classic",
+    "fedex st. jude championship",
+]
+
+
+def is_playoff_tournament(tournament_name: str) -> bool:
+    """Return True if the tournament name matches a known FedEx Cup Playoff event."""
+    name = str(tournament_name).lower()
+    return any(p in name for p in _PLAYOFF_PATTERNS)
+
+
 # SG columns that exist in the historical data (per-round averages).
 # Some (ott, app, arg) are absent from scraped data; we skip them gracefully.
 _SG_COLS = [
@@ -200,6 +225,40 @@ def add_links_history(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=["_order", "_links_sg"]).reset_index(drop=True)
 
 
+# ── Playoff history ────────────────────────────────────────────────────────────
+
+def add_playoff_history(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For each player-tournament, add their historical average SG total per round
+    across all prior FedEx Cup Playoff events, and the count of those starts.
+
+    playoff_sg_hist: expanding mean of sg_total_per_round at playoff events
+                     (shifted by 1 so the current tournament is never included).
+    playoff_starts:  count of prior playoff starts with valid SG data.
+    """
+    df = df.copy()
+
+    if "tournament_name" not in df.columns:
+        df["playoff_sg_hist"] = np.nan
+        df["playoff_starts"]  = np.nan
+        return df
+
+    df["_order"]      = _sort_key(df)
+    df["_playoff_sg"] = df["sg_total_per_round"].where(
+        df["tournament_name"].apply(is_playoff_tournament)
+    )
+    df = df.sort_values(["player_id", "_order"])
+
+    df["playoff_sg_hist"] = df.groupby("player_id")["_playoff_sg"].transform(
+        lambda x: x.shift(1).expanding().mean()
+    )
+    df["playoff_starts"] = df.groupby("player_id")["_playoff_sg"].transform(
+        lambda x: x.shift(1).expanding().count()
+    )
+
+    return df.drop(columns=["_order", "_playoff_sg"]).reset_index(drop=True)
+
+
 # ── Made-cut rate ──────────────────────────────────────────────────────────────
 
 def add_made_cut_rate(
@@ -247,6 +306,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = add_rolling_sg(df)
     df = add_course_history(df)
     df = add_links_history(df)
+    df = add_playoff_history(df)
     df = add_made_cut_rate(df)
     df = add_recent_starts(df)
     return df

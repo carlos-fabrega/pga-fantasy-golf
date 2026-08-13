@@ -23,6 +23,7 @@ Usage — build weekly feature matrix:
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -30,7 +31,9 @@ import pandas as pd
 import requests
 
 _URL = "https://orchestrator.pgatour.com/graphql"
-_KEY = "da2-gsrx5bibzbb4njvhl7t37wqyl4"
+# PGA Tour's public web-client API key — it ships in their site bundle, so it's not a
+# secret. Overridable via PGA_API_KEY in case they rotate it.
+_KEY = os.environ.get("PGA_API_KEY", "da2-gsrx5bibzbb4njvhl7t37wqyl4")
 
 SG_STAT_IDS: Dict[str, str] = {
     "sg_ott":   "02567",
@@ -420,6 +423,26 @@ def build_weekly_features(
         if links_sg_vals:
             row["links_sg_hist"] = float(sum(links_sg_vals) / len(links_sg_vals))
             row["links_starts"]  = len(links_sg_vals)
+
+        # ── Playoff history ───────────────────────────────────────────────────
+        from src.features import is_playoff_tournament
+        playoff_sg_vals = []
+        if not history.empty and "tournament_name" in history.columns and "sg_total" in history.columns:
+            t_names = history["tournament_name"]
+            if isinstance(t_names, pd.DataFrame):
+                t_names = t_names.iloc[:, 0]
+            sg_totals = history["sg_total"]
+            for name, sg in zip(t_names.tolist(), sg_totals.tolist()):
+                if is_playoff_tournament(str(name)) and pd.notna(sg):
+                    playoff_sg_vals.append(float(sg))
+        if historical_df is not None and "tournament_name" in historical_df.columns:
+            player_hist = historical_df[historical_df["player_id"] == pid]
+            hist_playoff_mask = player_hist["tournament_name"].apply(is_playoff_tournament)
+            hist_playoff_sg = player_hist.loc[hist_playoff_mask, "sg_total_per_round"].dropna()
+            playoff_sg_vals.extend(hist_playoff_sg.tolist())
+        if playoff_sg_vals:
+            row["playoff_sg_hist"] = float(sum(playoff_sg_vals) / len(playoff_sg_vals))
+            row["playoff_starts"]  = len(playoff_sg_vals)
 
         rows.append(row)
 
