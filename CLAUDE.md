@@ -41,7 +41,7 @@ python -m src.optimizer --csv data/processed/R2026030_john_deere_classic/salarie
 for Open/Scottish/Dunhill/Irish — pass `--tournament`, `--no-links`, or `--links` to override.
 
 There is no automated test suite. Verify changes by re-running `python -m src.model --cv` and
-checking the mean Spearman rank correlation (≈0.29 is normal), or by running predict → optimizer
+checking the mean Spearman rank correlation (≈0.28 is normal), or by running predict → optimizer
 end-to-end against a known tournament ID and eyeballing the output.
 
 ## File layout

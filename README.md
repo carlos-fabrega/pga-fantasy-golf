@@ -17,20 +17,26 @@ lineup selection needs — not absolute error):
 
 | Test season | Train | Rows | Tournaments | Spearman ρ (mean) |
 |---|---|---|---|---|
-| 2018 | 2015–2017 | 4,821 | 34 | +0.274 |
-| 2019 | 2015–2018 | 5,005 | 35 | +0.285 |
-| 2020 | 2015–2019 | 4,179 | 29 | +0.279 |
-| 2021 | 2015–2020 | 5,576 | 38 | +0.322 |
-| 2022 | 2015–2021 | 3,646 | 26 | +0.282 |
-| **Overall** | | | | **+0.288** (σ 0.019) |
+| 2018 | 2015–2017 | 4,863 | 34 | +0.266 |
+| 2019 | 2015–2018 | 5,047 | 35 | +0.258 |
+| 2020 | 2015–2019 | 4,216 | 29 | +0.274 |
+| 2021 | 2015–2020 | 5,615 | 38 | +0.316 |
+| 2022 | 2015–2021 | 3,653 | 26 | +0.278 |
+| **Overall** | | | | **+0.278** (σ 0.022) |
 
 Reproduce with `python -m src.model --cv`.
 
+These figures are measured *after* the train/serve parity fix — training previously used an EWM over
+a player's full career while inference used a flat mean of recent events, so the model was scored on
+a feature distribution it never trained on. Closing that gap lowered the reported CV score slightly,
+which is the point: the earlier number was partly measuring a bias the live pipeline couldn't
+reproduce. Verify with `python -m tests.test_feature_parity`.
+
 Two tournament-type model variants were built and backtested against this baseline — a links-course
 variant and a FedEx Cup Playoffs variant. The links variant is a marginal improvement; the playoff
-variant **underperformed the base model by ~21%** on playoff events (0.259 vs 0.329 on those rows),
-since ~23 historical playoff editions is far too thin to train on. It's kept behind an explicit
-`--playoff` opt-in rather than auto-selected. Negative results are cheaper to keep than to rediscover.
+variant **underperformed the base model** on playoff events, since ~23 historical playoff editions is
+far too thin to train an 800-tree ranker on. It's kept behind an explicit `--playoff` opt-in rather
+than auto-selected. Negative results are cheaper to keep than to rediscover.
 
 ## Project structure
 
