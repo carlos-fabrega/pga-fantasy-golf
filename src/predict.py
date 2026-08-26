@@ -5,6 +5,7 @@ Usage:
     python -m src.predict                       # auto-detect next event; links model auto-selected
     python -m src.predict --tournament R2026030 # score a specific event
     python -m src.predict --no-links            # force the base model on a links event
+    python -m src.predict --no-nocut            # force the base model on a no-cut event
     python -m src.predict --latest              # re-score most recent saved features (no scrape)
 
 Output is saved to data/processed/{tournament_id}_{slug}/projections.csv
@@ -21,7 +22,7 @@ from typing import Optional
 import pandas as pd
 
 from src.model import VARIANT_FEATURES, load
-from src.features import is_links_tournament
+from src.features import is_links_tournament, is_nocut_tournament
 from src.paths import PROCESSED_DIR, HISTORICAL_CSV
 
 
@@ -104,6 +105,11 @@ def main() -> None:
     parser.add_argument("--no-playoff", dest="playoff", action="store_false",
                         help="Force the base model, even on a playoff event.")
     parser.set_defaults(playoff=None)
+    parser.add_argument("--nocut", dest="nocut", action="store_true",
+                        help="Force the no-cut model (base features minus made_cut_rate_*) on.")
+    parser.add_argument("--no-nocut", dest="nocut", action="store_false",
+                        help="Force the base model, even on a no-cut event.")
+    parser.set_defaults(nocut=None)
     parser.add_argument("--latest", action="store_true",
                         help="Re-score the most recently saved weekly features instead of "
                              "scraping a fresh field.")
@@ -150,26 +156,35 @@ def main() -> None:
         out_dir = _tournament_dir(t_id, t_name)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Decide base vs links vs playoff model: honor an explicit --links/--playoff
-    # override, else auto-detect links only (Open/Scottish/Dunhill/Irish).
+    # Decide base vs links vs nocut vs playoff. An explicit flag always wins;
+    # otherwise auto-detect links (Open/Scottish/Dunhill/Irish) and no-cut
+    # (Tour Championship/BMW/Sentry/WGCs — see features._NOCUT_PATTERNS).
+    # Links is checked first, but the two sets do not currently overlap: every
+    # links event on the calendar has a 36-hole cut.
     # NOTE: the playoff variant is NOT auto-selected for BMW/Tour Championship —
     # backtesting (see src/model.py FEATURE_COLS_PLAYOFF comment) showed it
     # underperforms the base model on held-out playoff seasons (too little
     # training data: ~23 historical playoff editions). Pass --playoff explicitly
     # to use it anyway.
     t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else ""
-    if args.links is True:
-        variant = "links"
-    elif args.playoff is True:
-        variant = "playoff"
-    elif args.links is False or args.playoff is False:
+    forced = {"links": args.links, "playoff": args.playoff, "nocut": args.nocut}
+    auto = None
+    if any(v is True for v in forced.values()):
+        variant = next(k for k, v in forced.items() if v is True)
+    elif any(v is False for v in forced.values()):
         variant = "base"
     elif is_links_tournament(t_name):
-        variant = "links"
+        variant = auto = "links"
+    elif is_nocut_tournament(t_name):
+        variant = auto = "nocut"
     else:
         variant = "base"
-    if args.links is None and variant != "base":
+
+    if auto == "links":
         print(f"'{t_name}' is a links event → using the links-tuned model.\n")
+    elif auto == "nocut":
+        print(f"'{t_name}' is a no-cut event → using the no-cut model "
+              f"(made_cut_rate_* dropped). Pass --no-nocut to override.\n")
 
     # Drop players with no recent SG data
     feature_cols = VARIANT_FEATURES[variant]

@@ -252,15 +252,18 @@ def display_lineups(
         )
 
 
-def _lineups_filename(locks: List[str], excludes: List[str]) -> str:
+def _lineups_filename(locks: List[str], excludes: List[str], variant: str = "") -> str:
     """
-    Build a lineups filename that encodes the locks/excludes so distinct runs
-    don't overwrite each other. A plain run (no locks/excludes) stays 'lineups.csv'.
+    Build a lineups filename that encodes the model variant and locks/excludes so
+    distinct runs don't overwrite each other. A plain base-model run (no
+    locks/excludes) stays 'lineups.csv'.
     """
     def _slug(names: List[str]) -> str:
         return "_".join(normalize_name(n).replace(" ", "") for n in names if n.strip())
 
     parts = []
+    if variant:
+        parts.append(variant)
     if locks:
         parts.append("lock_" + _slug(locks))
     if excludes:
@@ -346,7 +349,8 @@ def main() -> None:
         return
 
     display_lineups(lineups, args.budget, merged)
-    export_csv(lineups, out_dir / _lineups_filename(args.lock, args.exclude))
+    variant = proj_path.stem.replace("projections", "").lstrip("_")
+    export_csv(lineups, out_dir / _lineups_filename(args.lock, args.exclude, variant))
 
 
 if __name__ == "__main__":
