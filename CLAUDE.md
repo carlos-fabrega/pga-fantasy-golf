@@ -44,22 +44,33 @@ for Open/Scottish/Dunhill/Irish, or the no-cut model for limited-field no-cut ev
 Championship, BMW, Sentry, the old WGCs) — pass `--tournament`, `--no-links`/`--links`, or
 `--no-nocut`/`--nocut` to override. Links is checked first; the two sets don't currently overlap.
 
-There is no automated test suite. Verify changes by re-running `python -m src.model --cv` and
-checking the mean Spearman rank correlation (≈0.28 is normal), or by running predict → optimizer
-end-to-end against a known tournament ID and eyeballing the output.
+Analyst-agent database (see `PGA_AGENT_PLAN.md`) — rebuild after each new weekly run or retrain:
+```bash
+python -m agent.db --fetch   # cache scored events' leaderboards + schedule (network), then build
+python -m agent.db           # rebuild data/processed/agent.sqlite from local files only
+```
+`agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
+46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
+
+`python -m pytest tests/` covers the agent DB only. For the model, verify changes by re-running
+`python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
+by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
 ## File layout
 
 ```
 src/                 # one module per pipeline stage (see below)
   paths.py           # SINGLE source of truth for all filesystem paths
+agent/               # analyst agent; db.py builds the read-only SQLite DB
 models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
 data/
   raw/
     historical/      # 14-22 practice data.csv (the 2014–2022 training source)
     scraped/         # R{year}{id}.csv from the external scraper
+    results/         # cached live leaderboards + schedule.csv (agent.db --fetch)
   processed/
     feature_matrix.parquet
+    agent.sqlite, player_crosswalk_review.csv
     {tournament_id}_{slug}/   # per-week artifacts, all together:
         weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv
 ```

@@ -106,6 +106,31 @@ def get_tournaments_for_year(year: int) -> List[dict]:
     ]
 
 
+def get_completed_schedule(year: int) -> List[dict]:
+    """
+    Return every completed PGA Tour event in a season, oldest first.
+    Each dict has: tournament_id, tournament_name, start_date (Timestamp).
+    """
+    data = _post("""
+        query {
+            schedule(tourCode: "R", year: "%d") {
+                completed { tournaments { id tournamentName startDate } }
+            }
+        }
+    """ % year)
+    groups = (data.get("schedule") or {}).get("completed", [])
+    rows = [
+        {
+            "tournament_id": t["id"],
+            "tournament_name": t["tournamentName"],
+            "start_date": pd.to_datetime(t["startDate"], unit="ms"),
+        }
+        for g in groups
+        for t in (g.get("tournaments") or [])
+    ]
+    return sorted(rows, key=lambda r: r["start_date"])
+
+
 # ── Field ──────────────────────────────────────────────────────────────────────
 
 def get_field(tournament_id: str) -> List[dict]:

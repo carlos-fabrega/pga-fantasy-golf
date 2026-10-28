@@ -205,8 +205,8 @@ That changelog is your interview story and your README "results" section.
 ## 10. Milestones
 
 ### Weekend 1: working agent
-- [ ] Step 0 inventory + minimal refactor so each piece is callable as a function
-- [ ] `db.py` with consolidated tables + backfilled `predictions`
+- [x] Step 0 inventory + minimal refactor so each piece is callable as a function
+- [x] `db.py` with consolidated tables + backfilled `predictions` (SQLite; adds an `events` table; predictions = 2018–22 out-of-fold + 7 live 2026 weeks)
 - [ ] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
 - [ ] Hand-written agent loop with trace logging
 - [ ] CLI answering lookup + explanation questions end to end

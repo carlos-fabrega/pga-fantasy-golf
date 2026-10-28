@@ -15,10 +15,13 @@ DATA_DIR       = PROJECT_ROOT / "data"
 RAW_DIR        = DATA_DIR / "raw"
 HISTORICAL_CSV = RAW_DIR / "historical" / "14-22 practice data.csv"
 SCRAPED_DIR    = RAW_DIR / "scraped"
+RESULTS_DIR    = RAW_DIR / "results"   # cached 2026+ leaderboards + schedule (agent.db --fetch)
 
 # ── Processed artifacts ───────────────────────────────────────────────────────
 PROCESSED_DIR  = DATA_DIR / "processed"
 FEATURE_MATRIX = PROCESSED_DIR / "feature_matrix.parquet"
+AGENT_DB       = PROCESSED_DIR / "agent.sqlite"
+PLAYER_REVIEW  = PROCESSED_DIR / "player_crosswalk_review.csv"
 
 # ── Trained models ────────────────────────────────────────────────────────────
 MODELS_DIR       = PROJECT_ROOT / "models"
