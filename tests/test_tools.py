@@ -29,7 +29,12 @@ PLAYERS = [
     ("H1646", "Chad Collins", None),
     ("37455", "Si Woo Kim", None),
     ("52955", "Ludvig Åberg", "Ludvig Aberg"),
+    ("29725", "Tony Finau", None),
+    ("39546", "Max Homa", None),
+    ("39971", "Sungjae Im", None),
 ]
+# A bigger backtest field for 2254, since Spearman needs 20+ players (as in model CV).
+BACKTEST = [(f"G{i:02d}", f"Golfer {i:02d}", None) for i in range(22)]
 EVENTS = [
     # event_id, tournament_name, course, season, date, source
     ("2254", "Wyndham Championship", "Sedgefield", 2019, "2019-08-04", "training"),
@@ -37,7 +42,8 @@ EVENTS = [
     ("R2026013", "Wyndham Championship", "Sedgefield", 2026, "2026-08-06", "weekly"),
     ("R2026060", "TOUR Championship", "East Lake", 2026, "2026-08-27", "weekly"),
 ]
-FIELD = ["46046", "35891", "50525", "37455", "52955"]   # everyone but Jordan Smith / Chad Collins
+FIELD = ["46046", "35891", "50525", "37455", "52955", "29725", "39546", "39971"]   # all but J. Smith / C. Collins
+SALARY = {pid: 100_000 * (i + 1) for i, pid in enumerate(FIELD)}   # $100K ... $800K
 
 
 @pytest.fixture(scope="module")
@@ -72,8 +78,11 @@ def con(tmp_path, model, monkeypatch):
                              "model_version": version, "score": s,
                              "rank": pd.Series(s).rank(ascending=False, method="min").astype(int).values})
 
+    backtest = pd.DataFrame({"player_id": [p for p, *_ in BACKTEST], "event_id": "2254",
+                             "model_version": "base_oof", "score": np.linspace(1, -1, len(BACKTEST))})
+    backtest["rank"] = np.arange(1, len(BACKTEST) + 1)
     predictions = pd.concat([
-        _scores("2254", "base_oof"),
+        backtest,
         _scores("R2026541", "base"),                   # links event that only has base scores
         _scores("R2026013", "base"),
         _scores("R2026060", "nocut"),
@@ -82,11 +91,20 @@ def con(tmp_path, model, monkeypatch):
 
     db = tmp_path / "agent.sqlite"
     w = sqlite3.connect(db)
-    pd.DataFrame(PLAYERS, columns=["player_id", "name", "aliases"]).to_sql("players", w, index=False)
+    pd.DataFrame(PLAYERS + BACKTEST, columns=["player_id", "name", "aliases"]).to_sql("players", w, index=False)
     pd.DataFrame(EVENTS, columns=["event_id", "tournament_name", "course", "season", "date", "source"]
                  ).to_sql("events", w, index=False)
     features.to_sql("features", w, index=False)
     predictions.to_sql("predictions", w, index=False)
+    pd.DataFrame([{"player_id": pid, "event_id": e, "salary": SALARY[pid]}
+                  for e in ("R2026013", "R2026060") for pid in FIELD]).to_sql("salaries", w, index=False)
+    # Results: the backtest finishes in model order, so its Spearman is 1; live
+    # weeks finish in field order (FIELD[0] wins).
+    results = [{"player_id": p, "event_id": "2254", "finish": i + 1, "prize_pct": 0.2 / (i + 1)}
+               for i, (p, *_) in enumerate(BACKTEST)]
+    results += [{"player_id": pid, "event_id": e, "finish": i + 1, "prize_pct": 0.2 / (i + 1)}
+                for e in ("R2026013", "R2026060") for i, pid in enumerate(FIELD)]
+    pd.DataFrame(results).to_sql("results", w, index=False)
     w.close()
     return connect(db)
 
@@ -212,6 +230,88 @@ def test_explanation_refuses_when_model_no_longer_matches(con):
 def test_explanation_unsupported_for_backtest_events(con):
     out = run_tool(con, "explain_prediction", {"player_id": "46046", "event": "2254"})
     assert out["error"] == "unsupported"
+
+
+# ── value_report ───────────────────────────────────────────────────────────────
+
+def test_value_is_salary_rank_minus_model_rank(con):
+    out = run_tool(con, "value_report", {"event": "Wyndham", "top_n": len(FIELD)})
+    assert out["priced_players"] == len(FIELD)
+    players = out["players"]
+    by_score = sorted(players, key=lambda p: -p["score"])
+    for p in players:
+        assert p["salary"] == SALARY[p["player_id"]]
+        assert p["salary_rank"] == len(FIELD) - FIELD.index(p["player_id"])    # priciest = 1
+        assert p["model_rank"] == by_score.index(p) + 1
+        assert p["value"] == p["salary_rank"] - p["model_rank"]
+    assert [p["value"] for p in players] == sorted((p["value"] for p in players), reverse=True)
+
+
+def test_value_needs_salaries(con):
+    out = run_tool(con, "value_report", {"event": "Wyndham", "season": 2019})
+    assert out["error"] == "no_salaries"
+    assert out["events_with_salaries"] == ["TOUR Championship 2026", "Wyndham Championship 2026"]
+
+
+# ── propose_lineups ────────────────────────────────────────────────────────────
+
+def test_lineups_respect_budget_locks_excludes_and_differ(con):
+    budget = 3_000_000   # Si Woo ($400K) + 5 of the other 6 fits only by leaving out a $500K+ player
+    out = run_tool(con, "propose_lineups", {"n_lineups": 3, "budget": budget,
+                                            "locks": ["37455"], "excludes": ["46046"]})
+    assert out["status"].startswith("proposed") and out["proposal_id"]
+    assert (out["locks"], out["excludes"]) == (["Si Woo Kim"], ["Scottie Scheffler"])
+    seen = []
+    for lu in out["lineups"]:
+        ids = {p["player_id"] for p in lu["players"]}
+        assert len(ids) == 6 and "37455" in ids and "46046" not in ids
+        assert lu["total_salary"] == sum(SALARY[i] for i in ids) <= budget
+        assert lu["budget_left"] == budget - lu["total_salary"]
+        assert ids not in seen
+        seen.append(ids)
+    assert len(seen) == 3
+
+
+def test_lineups_report_when_fewer_fit(con):
+    # Excluding 2 of 8 leaves exactly one possible lineup.
+    out = run_tool(con, "propose_lineups", {"n_lineups": 2, "budget": 10_000_000,
+                                            "excludes": ["46046", "35891"]})
+    assert len(out["lineups"]) == 1 and "Only 1 of 2" in out["note"]
+
+
+def test_lineup_errors(con):
+    def err(**a):
+        return run_tool(con, "propose_lineups", a)["error"]
+    assert err(locks=["46464"]) == "lock_not_available"                 # Jordan Smith isn't in the field
+    assert err(locks=["46046"], excludes=["46046"]) == "bad_input"
+    assert err(locks=["39971", "39546"], budget=1_000_000) == "infeasible"   # $1.5M locked
+    assert err(budget=1_000_000) == "infeasible"                         # cheapest six cost $2.1M
+    assert err(n_lineups=6) == "bad_input"
+    assert err(locks=["999"]) == "unknown_player"
+    assert err(event="Wyndham", season=2019) == "no_salaries"
+
+
+# ── model_performance ──────────────────────────────────────────────────────────
+
+def test_performance_for_one_event(con):
+    out = run_tool(con, "model_performance", {"event": "Wyndham", "season": 2019})
+    assert (out["model_version"], out["players"], out["spearman"]) == ("base_oof", 22, 1.0)
+    assert out["top10_hits"] == 10 and out["winner"] == {"name": "Golfer 00", "model_rank": 1}
+
+    out = run_tool(con, "model_performance", {"event": "Wyndham"})       # live week, 8 players
+    assert out["spearman"] is None                                     # under 20: skipped, as in CV
+    assert out["winner"]["name"] == "Scottie Scheffler"                # FIELD[0] finishes first
+    assert out["top10_hits"] == len(FIELD)                             # whole field is "top 10"
+
+
+def test_performance_by_season_and_overall(con):
+    out = run_tool(con, "model_performance", {"season": 2026})
+    assert out["events"] == 2 and [e["event_id"] for e in out["by_event"]] == ["R2026013", "R2026060"]
+    assert out["by_event"][1]["model_version"] == "nocut"
+    out = run_tool(con, "model_performance", {})
+    assert [(s["season"], s["events"]) for s in out["seasons"]] == [(2019, 1), (2026, 2)]
+    assert out["seasons"][0]["mean_spearman"] == 1.0
+    assert run_tool(con, "model_performance", {"season": 2001})["error"] == "no_results"
 
 
 # ── schemas + dispatch ─────────────────────────────────────────────────────────

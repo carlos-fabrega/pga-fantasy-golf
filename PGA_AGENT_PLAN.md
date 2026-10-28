@@ -104,9 +104,9 @@ Prefer specific, parameterized tools over a raw SQL tool. They're safer, easier 
 | `get_rankings` | `event_id` (default: upcoming), `top_n` | ranked players with model score | *Built:* every event tool takes `event` (an id or part of a tournament name) + optional `season`; the default is the latest scored event. Picks the variant `predict` would auto-select, falling back to base. |
 | `get_player_features` | `player_id`, `event_id` | feature values for that event | |
 | `explain_prediction` | `player_id`, `event_id`, `compare_to?` | top feature contributions | Use XGBoost `predict(..., pred_contribs=True)` for real SHAP contributions. Not LLM guesswork. *Built:* live weeks only, since backtest fold models aren't saved. It refuses with `model_changed` when the saved model no longer reproduces the stored score; as of Oct 2026 that's every base-model week except the TOUR Championship. |
-| `value_report` | `event_id`, `top_n` | players ranked by model score per $1K salary | |
-| `propose_lineups` | `event_id`, `n_lineups`, `locks[]`, `excludes[]`, `rules{}` | proposal with `proposal_id`, lineups, total salary, projected score | Calls the PuLP optimizer. **Does not save anything.** |
-| `model_performance` | `season` or `event_ids[]` | mean Spearman, hit rates, best/worst events | Computed from `predictions` vs `results` |
+| `value_report` | `event_id`, `top_n` | players ranked by model score per $1K salary | *Built:* ranks by `salary_rank - model_rank` instead, because most weekly scores are negative ranker margins (115 of 144 at Wyndham), so score per $1K would favour expensive weak players. Live weeks with salaries only. |
+| `propose_lineups` | `event_id`, `n_lineups`, `locks[]`, `excludes[]`, `rules{}` | proposal with `proposal_id`, lineups, total salary, projected score | Calls the PuLP optimizer. **Does not save anything.** *Built:* reuses `optimizer.build_lineups` on the DB's stored scores and salaries; locks and excludes are player_ids; `rules{}` is just `budget` (default $1.65M); 1–5 lineups. Checks impossible locks before solving. |
+| `model_performance` | `season` or `event_ids[]` | mean Spearman, hit rates, best/worst events | Computed from `predictions` vs `results` *Built:* takes `event` or `season` (neither gives a per-season summary). Spearman reuses `model._spearman_by_tournament`, so it matches `--cv` (backtest seasons average 0.26–0.32; 2026 live 0.18 mean, 0.25 median over 7 events). Also reports top-10 hits and where the model ranked the winner. |
 
 Each tool:
 - Has a JSON schema with clear descriptions (the description is part of your context engineering).
@@ -212,10 +212,10 @@ That changelog is your interview story and your README "results" section.
 - [x] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
 - [x] Hand-written agent loop with trace logging
 - [x] CLI answering lookup + explanation questions end to end (`agent/cli.py`: a multi-turn conversation, so a clarifying question gets answered in context, plus a one-shot mode; `run()` takes `history`)
-- [ ] Unit tests for each tool (pytest). Tools 1–4 are covered in `tests/test_tools.py`, the loop in `tests/test_agent.py`.
+- [x] Unit tests for each tool (pytest): `tests/test_tools.py`, plus the loop in `tests/test_agent.py` and the CLI in `tests/test_cli.py`.
 
 ### Weekend 2: make it trustworthy
-- [ ] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
+- [x] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
 - [ ] Lineup approval flow in CLI
 - [ ] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [ ] Eval set (~30) + expected-answer generator + `run_evals.py`

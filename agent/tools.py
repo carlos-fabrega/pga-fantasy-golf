@@ -19,18 +19,21 @@ import contextlib
 import difflib
 import io
 import sqlite3
+import uuid
 from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 import xgboost as xgb
 
 from agent.db import match_key
-from src.model import VARIANT_FEATURES, load
+from src.model import VARIANT_FEATURES, _spearman_by_tournament, load
+from src.optimizer import DEFAULT_BUDGET, N_PLAYERS, build_lineups
 from src.predict import align_features, select_variant
 
 # Contributions + baseline must reproduce the stored score to within this, or
 # the saved model is not the one that produced the ranking.
 _REPRODUCE_TOL = 1e-4
+MAX_LINEUPS = 5
 
 
 class ToolError(Exception):
@@ -321,6 +324,198 @@ def explain_prediction(con: sqlite3.Connection, player_id: str, event: Optional[
     return out
 
 
+# ── 5. value_report ────────────────────────────────────────────────────────────
+
+def _priced_field(con: sqlite3.Connection, ev: sqlite3.Row, version: str) -> pd.DataFrame:
+    """Players at an event with both a model score and a Buzz salary, best score first."""
+    df = pd.read_sql(
+        "SELECT p.player_id, pl.name, p.score, s.salary FROM predictions p "
+        "JOIN players pl USING (player_id) JOIN salaries s USING (player_id, event_id) "
+        "WHERE p.event_id = ? AND p.model_version = ? ORDER BY p.score DESC",
+        con, params=(ev["event_id"], version))
+    if df.empty:
+        priced = [f"{r[0]} {r[1]}" for r in con.execute(
+            "SELECT DISTINCT e.tournament_name, e.season FROM salaries JOIN events e USING (event_id) "
+            "ORDER BY e.date DESC")]
+        raise ToolError("no_salaries", f"No Buzz salaries for {ev['event_id']} "
+                        f"({ev['tournament_name']} {ev['season']}).", events_with_salaries=priced)
+    df["model_rank"] = df["score"].rank(ascending=False, method="min").astype(int)
+    df["salary_rank"] = df["salary"].rank(ascending=False, method="min").astype(int)
+    return df
+
+
+def value_report(con: sqlite3.Connection, event: Optional[str] = None, season: Optional[int] = None,
+                 top_n: int = 10, model_version: Optional[str] = None) -> dict:
+    """
+    Best value by rank, not score per dollar: most weekly scores are negative
+    (they're ranker margins), so a ratio would favour expensive weak players.
+    value = salary_rank - model_rank among priced players; positive means the
+    model rates a player above their price.
+    """
+    ev = _resolve_event(con, event, season)
+    version, _ = _model_version(con, ev, model_version)
+    df = _priced_field(con, ev, version)
+    df["value"] = df["salary_rank"] - df["model_rank"]
+    df = df.sort_values(["value", "score"], ascending=False, kind="stable")
+    return {
+        "event": _event_info(ev),
+        "model_version": version,
+        "priced_players": len(df),
+        "players": [{"player_id": r.player_id, "name": r.name, "salary": int(r.salary),
+                     "model_rank": int(r.model_rank), "salary_rank": int(r.salary_rank),
+                     "value": int(r.value), "score": _r(r.score)}
+                    for r in df.head(max(1, int(top_n))).itertuples()],
+    }
+
+
+# ── 6. propose_lineups ─────────────────────────────────────────────────────────
+
+def _ids(x) -> List[str]:
+    if x is None:
+        return []
+    return [str(p) for p in ([x] if isinstance(x, (str, int)) else x)]
+
+
+def propose_lineups(con: sqlite3.Connection, event: Optional[str] = None, season: Optional[int] = None,
+                    n_lineups: int = 1, locks: Optional[List[str]] = None,
+                    excludes: Optional[List[str]] = None, budget: int = DEFAULT_BUDGET,
+                    model_version: Optional[str] = None) -> dict:
+    """
+    Salary-cap lineups from the optimizer, as a proposal only: nothing is saved.
+    Saving is the CLI's job, after the user approves (PGA_AGENT_PLAN.md §8).
+    """
+    ev = _resolve_event(con, event, season)
+    version, _ = _model_version(con, ev, model_version)
+    n_lineups, budget = int(n_lineups), int(budget)
+    if not 1 <= n_lineups <= MAX_LINEUPS:
+        raise ToolError("bad_input", f"n_lineups must be 1-{MAX_LINEUPS}.")
+    if budget <= 0:
+        raise ToolError("bad_input", "budget must be positive.")
+    locks, excludes = _ids(locks), _ids(excludes)
+    names = {pid: _player(con, pid)["name"] for pid in locks + excludes}
+    if set(locks) & set(excludes):
+        raise ToolError("bad_input", "A player can't be both locked and excluded: "
+                        + ", ".join(names[p] for p in set(locks) & set(excludes)))
+    if len(set(locks)) > N_PLAYERS:
+        raise ToolError("bad_input", f"A lineup has {N_PLAYERS} players; {len(set(locks))} were locked.")
+
+    df = _priced_field(con, ev, version)
+    absent = [p for p in locks if p not in set(df["player_id"])]
+    if absent:
+        raise ToolError("lock_not_available", "Locked players with no salary and score at this event: "
+                        + ", ".join(names[p] for p in absent))
+    locked_salary = int(df.loc[df["player_id"].isin(locks), "salary"].sum())
+    if locked_salary > budget:
+        raise ToolError("infeasible", f"The locked players cost ${locked_salary:,}, over the "
+                        f"${budget:,} budget.")
+
+    frame = df.assign(projected_prize_pct=df["score"], name_key="")   # the columns the optimizer reads
+    with contextlib.redirect_stdout(io.StringIO()):   # build_lineups prints when it runs out
+        lineups = build_lineups(frame, n_lineups=n_lineups, budget=budget, n_players=N_PLAYERS,
+                                lock_ids=locks, exclude_ids=excludes)
+    if not lineups:
+        raise ToolError("infeasible", "No lineup fits the budget with these locks and excludes.")
+
+    out = {
+        "proposal_id": uuid.uuid4().hex[:8],
+        "status": "proposed: not saved or submitted until the user approves it",
+        "event": _event_info(ev),
+        "model_version": version,
+        "budget": budget,
+        "locks": [names[p] for p in locks],
+        "excludes": [names[p] for p in excludes],
+        "lineups": [{
+            "players": [{"player_id": r.player_id, "name": r.name, "salary": int(r.salary),
+                         "model_rank": int(r.model_rank), "score": _r(r.score)}
+                        for r in lu.sort_values("salary", ascending=False).itertuples()],
+            "total_salary": int(lu["salary"].sum()),
+            "budget_left": budget - int(lu["salary"].sum()),
+            "total_score": _r(lu["score"].sum()),
+        } for lu in lineups],
+    }
+    if len(lineups) < n_lineups:
+        out["note"] = f"Only {len(lineups)} of {n_lineups} distinct lineups fit these constraints."
+    return out
+
+
+# ── 7. model_performance ───────────────────────────────────────────────────────
+
+def _event_results(con: sqlite3.Connection, ev: sqlite3.Row, version: str) -> pd.DataFrame:
+    return pd.read_sql(
+        "SELECT p.player_id, pl.name, p.rank, p.score, r.finish, r.prize_pct FROM predictions p "
+        "JOIN results r USING (player_id, event_id) JOIN players pl USING (player_id) "
+        "WHERE p.event_id = ? AND p.model_version = ?", con, params=(ev["event_id"], version))
+
+
+def _event_metrics(ev: sqlite3.Row, version: str, df: pd.DataFrame) -> dict:
+    """Spearman of score vs prize share (as in model CV), top-10 hits, and the winner's rank."""
+    rho = _spearman_by_tournament(df.assign(tournament_id=ev["event_id"]), df["score"].values)
+    top10 = df.nlargest(10, "score")
+    winner = df[df["finish"] == 1]
+    return {
+        "event_id": ev["event_id"], "name": ev["tournament_name"], "season": ev["season"],
+        "date": ev["date"], "model_version": version, "players": len(df),
+        "spearman": _r(rho.iloc[0], 3) if len(rho) else None,
+        "top10_hits": int((top10["finish"] <= 10).sum()),
+        "winner": ({"name": winner.iloc[0]["name"], "model_rank": int(winner.iloc[0]["rank"])}
+                   if len(winner) else None),
+    }
+
+
+def _summary(rows: List[dict]) -> dict:
+    rhos = pd.Series([r["spearman"] for r in rows], dtype=float)
+    return {"events": len(rows), "mean_spearman": _r(rhos.mean(), 3),
+            "median_spearman": _r(rhos.median(), 3),
+            "mean_top10_hits": _r(pd.Series([r["top10_hits"] for r in rows]).mean(), 2)}
+
+
+def model_performance(con: sqlite3.Connection, event: Optional[str] = None, season: Optional[int] = None,
+                      model_version: Optional[str] = None) -> dict:
+    """
+    How well rankings matched results. With event: that event. With season
+    alone: that season's summary plus its events (best and worst 3 if many).
+    With neither: a summary per season.
+    """
+    if event is not None:
+        ev = _resolve_event(con, event, season)
+        version, _ = _model_version(con, ev, model_version)
+        df = _event_results(con, ev, version)
+        if df.empty:
+            raise ToolError("no_results", f"No results stored for {ev['event_id']} yet.")
+        return _event_metrics(ev, version, df)
+
+    sql = ("SELECT * FROM events WHERE event_id IN (SELECT event_id FROM predictions) "
+           "AND event_id IN (SELECT event_id FROM results)")
+    evs = con.execute(sql + (" AND season = ?" if season is not None else "") + " ORDER BY date",
+                      [] if season is None else [int(season)]).fetchall()
+    rows: List[dict] = []
+    for ev in evs:
+        try:
+            version, _ = _model_version(con, ev, model_version)
+        except ToolError:   # requested version wasn't run for this event
+            continue
+        rows.append(_event_metrics(ev, version, _event_results(con, ev, version)))
+    if not rows:
+        raise ToolError("no_results", "No scored events with results"
+                        + (f" in season {season}." if season is not None else "."))
+
+    if season is not None:
+        out = {"season": int(season), **_summary(rows)}
+        ranked = sorted((r for r in rows if r["spearman"] is not None), key=lambda r: r["spearman"])
+        if len(rows) <= 10:
+            out["by_event"] = rows
+        else:
+            out["best_events"], out["worst_events"] = ranked[::-1][:3], ranked[:3]
+        return out
+    by_season = []
+    for y in sorted({r["season"] for r in rows}):
+        in_season = [r for r in rows if r["season"] == y]
+        by_season.append({"season": int(y), "model_versions": sorted({r["model_version"] for r in in_season}),
+                          **_summary(in_season)})
+    return {"seasons": by_season,
+            "note": "2018-2022 are out-of-fold backtests; 2026 are the live weekly projections."}
+
+
 # ── Schemas + dispatch ─────────────────────────────────────────────────────────
 
 _EVENT_PROPS = {
@@ -388,6 +583,47 @@ TOOLS: List[dict] = [
             "top_k": {"type": "integer", "description": "How many top features to list (default 8)."},
             **_VERSION_PROP}, "required": ["player_id"]},
     },
+    {
+        "name": "value_report",
+        "description": (
+            "Best value plays at a live week with Buzz salaries: players whose model rank beats "
+            "their salary rank among priced players. value = salary_rank - model_rank (rank 1 = "
+            "best score / highest salary); positive means the model rates the player above their price. "
+            "Returns no_salaries for events without salaries."),
+        "input_schema": {"type": "object", "properties": {
+            **_EVENT_PROPS,
+            "top_n": {"type": "integer", "description": "How many players to return (default 10)."},
+            **_VERSION_PROP}},
+    },
+    {
+        "name": "propose_lineups",
+        "description": (
+            f"Build Buzz Fantasy Golf lineups with the salary-cap optimizer: {N_PLAYERS} players, "
+            "total salary within budget, maximizing the summed model score; each extra lineup "
+            "differs from the earlier ones by at least one player. Returns a proposal with a "
+            "proposal_id. Nothing is saved or submitted: present the lineups as a proposal for the "
+            "user to approve, never as final."),
+        "input_schema": {"type": "object", "properties": {
+            **_EVENT_PROPS,
+            "n_lineups": {"type": "integer", "description": f"How many lineups (1-{MAX_LINEUPS}, default 1)."},
+            "locks": {"type": "array", "items": {"type": "string"},
+                      "description": "player_ids (from resolve_player) every lineup must include."},
+            "excludes": {"type": "array", "items": {"type": "string"},
+                         "description": "player_ids (from resolve_player) no lineup may include."},
+            "budget": {"type": "integer", "description": f"Salary cap in dollars (default {DEFAULT_BUDGET:,})."},
+            **_VERSION_PROP}},
+    },
+    {
+        "name": "model_performance",
+        "description": (
+            "How well the model's rankings matched actual results. Pass event for one event; season "
+            "alone for that season's summary and events; neither for a summary per season. "
+            "spearman is the rank correlation between model score and share of the purse won "
+            "(0 = random; the 2018-2022 backtest averages about 0.28). top10_hits is how many of "
+            "the model's top 10 finished in the top 10 (ties included). winner.model_rank is where "
+            "the model ranked the eventual winner."),
+        "input_schema": {"type": "object", "properties": {**_EVENT_PROPS, **_VERSION_PROP}},
+    },
 ]
 
 _FUNCS: Dict[str, Callable[..., dict]] = {
@@ -395,6 +631,9 @@ _FUNCS: Dict[str, Callable[..., dict]] = {
     "get_rankings": get_rankings,
     "get_player_features": get_player_features,
     "explain_prediction": explain_prediction,
+    "value_report": value_report,
+    "propose_lineups": propose_lineups,
+    "model_performance": model_performance,
 }
 _SCHEMAS = {t["name"]: t["input_schema"] for t in TOOLS}
 
