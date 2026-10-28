@@ -59,6 +59,46 @@ def is_playoff_tournament(tournament_name: str) -> bool:
     return any(p in name for p in _PLAYOFF_PATTERNS)
 
 
+# Substrings matched against lowercase tournament_name to identify no-cut events:
+# limited, elite-only fields where every starter plays four rounds and earns a
+# cheque. At these events made_cut_rate_* encodes a downside risk that does not
+# exist, so predict.py auto-selects the "nocut" model variant for them.
+#
+# Seeded empirically from data/processed/feature_matrix.parquet: these are the
+# events whose editions have (near-)zero players at prize_pct == 0, i.e. nobody
+# was cut. The small residual is withdrawals and DQs, not cuts. Verified against
+# the 2014-2022 training data:
+#     Tour Championship 0.010 | Sentry Tournament of Champions 0.011
+#     WGC-Bridgestone 0.000   | WGC-Mexico 0.000 | WGC-FedEx St. Jude 0.005
+# Hero World Challenge, WGC-HSBC Champions, The ZOZO Championship and CJ Cup @
+# Nine Bridges are also no-cut but read as prize_pct == 0 for the whole field in
+# that data (missing purse figures, not cuts), so they were confirmed by field
+# size instead.
+#
+# DELIBERATELY CONSERVATIVE. The post-2023 signature events (Genesis, Arnold
+# Palmer, RBC Heritage, Truist, Memorial, Travelers, Pebble Beach) are NOT
+# listed: their cut rules vary by field size and have changed year to year, and
+# they postdate the training data, so there is nothing here to verify them
+# against. Add one only after confirming that year's format; a wrong entry
+# silently applies the wrong model. Pass --nocut/--no-nocut to override.
+_NOCUT_PATTERNS = [
+    "tour championship",
+    "bmw championship",        # no cut since the 2019 playoff reformat
+    "sentry",                  # "Sentry Tournament of Champions" / "The Sentry"
+    "hero world challenge",
+    "zozo championship",
+    "cj cup",
+    "wgc-",                    # all World Golf Championships events were no-cut
+    "world golf championship",
+]
+
+
+def is_nocut_tournament(tournament_name: str) -> bool:
+    """Return True if the tournament name matches a known no-cut, limited-field event."""
+    name = str(tournament_name).lower()
+    return any(p in name for p in _NOCUT_PATTERNS)
+
+
 # SG columns that exist in the historical data (per-round averages).
 # Some (ott, app, arg) are absent from scraped data; we skip them gracefully.
 _SG_COLS = [

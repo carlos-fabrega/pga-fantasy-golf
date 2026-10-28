@@ -6,3 +6,4 @@ tqdm>=4.65
 pulp>=2.7
 xgboost>=2.0
 scipy>=1.7
+pytest>=7.0
