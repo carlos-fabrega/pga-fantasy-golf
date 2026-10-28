@@ -100,10 +100,10 @@ Prefer specific, parameterized tools over a raw SQL tool. They're safer, easier 
 
 | Tool | Inputs | Returns | Notes |
 |---|---|---|---|
-| `resolve_player` | `name: str` | `player_id`, canonical name, or a list of candidates if ambiguous | Fuzzy match (e.g. `rapidfuzz`). If ambiguous, the agent must ask the user. |
-| `get_rankings` | `event_id` (default: upcoming), `top_n` | ranked players with model score | |
+| `resolve_player` | `name: str` | `player_id`, canonical name, or a list of candidates if ambiguous | Fuzzy match (e.g. `rapidfuzz`). If ambiguous, the agent must ask the user. *Built:* stdlib `difflib` (rapidfuzz isn't installed); exact → name-prefix → last/first name → fuzzy, and a fuzzy hit always comes back as a candidate to confirm, never auto-resolved. |
+| `get_rankings` | `event_id` (default: upcoming), `top_n` | ranked players with model score | *Built:* every event tool takes `event` (an id or part of a tournament name) + optional `season`; the default is the latest scored event. Picks the variant `predict` would auto-select, falling back to base. |
 | `get_player_features` | `player_id`, `event_id` | feature values for that event | |
-| `explain_prediction` | `player_id`, `event_id`, `compare_to?` | top feature contributions | Use XGBoost `predict(..., pred_contribs=True)` for real SHAP contributions. Not LLM guesswork. |
+| `explain_prediction` | `player_id`, `event_id`, `compare_to?` | top feature contributions | Use XGBoost `predict(..., pred_contribs=True)` for real SHAP contributions. Not LLM guesswork. *Built:* live weeks only, since backtest fold models aren't saved. It refuses with `model_changed` when the saved model no longer reproduces the stored score; as of Oct 2026 that's every base-model week except the TOUR Championship. |
 | `value_report` | `event_id`, `top_n` | players ranked by model score per $1K salary | |
 | `propose_lineups` | `event_id`, `n_lineups`, `locks[]`, `excludes[]`, `rules{}` | proposal with `proposal_id`, lineups, total salary, projected score | Calls the PuLP optimizer. **Does not save anything.** |
 | `model_performance` | `season` or `event_ids[]` | mean Spearman, hit rates, best/worst events | Computed from `predictions` vs `results` |
@@ -207,10 +207,10 @@ That changelog is your interview story and your README "results" section.
 ### Weekend 1: working agent
 - [x] Step 0 inventory + minimal refactor so each piece is callable as a function
 - [x] `db.py` with consolidated tables + backfilled `predictions` (SQLite; adds an `events` table; predictions = 2018–22 out-of-fold + 7 live 2026 weeks)
-- [ ] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
+- [x] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
 - [ ] Hand-written agent loop with trace logging
 - [ ] CLI answering lookup + explanation questions end to end
-- [ ] Unit tests for each tool (pytest)
+- [ ] Unit tests for each tool (pytest). Tools 1–4 are covered in `tests/test_tools.py`.
 
 ### Weekend 2: make it trustworthy
 - [ ] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)

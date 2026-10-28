@@ -52,7 +52,7 @@ python -m agent.db           # rebuild data/processed/agent.sqlite from local fi
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
-`python -m pytest tests/` covers the agent DB only. For the model, verify changes by re-running
+`python -m pytest tests/` covers the agent DB and tools only. For the model, verify changes by re-running
 `python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
@@ -61,7 +61,7 @@ by running predict → optimizer end-to-end against a known tournament ID and ey
 ```
 src/                 # one module per pipeline stage (see below)
   paths.py           # SINGLE source of truth for all filesystem paths
-agent/               # analyst agent; db.py builds the read-only SQLite DB
+agent/               # analyst agent; db.py builds the read-only SQLite DB, tools.py the agent's tools
 models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
 data/
   raw/
