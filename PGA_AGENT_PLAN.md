@@ -125,7 +125,7 @@ Each tool:
 
 Make the model ID a config value so you can compare models in evals.
 
-*Built:* `agent/agent.py`, defaulting to `claude-opus-5-5` at medium effort (`--model` overrides it), with a 3-minute timeout on top of the 8-call cap and the server-side refusal fallback turned on. It runs on SDK 0.72, the newest for Python 3.8, so `output_config` and `fallbacks` go through `extra_body`. Verified live on `claude-haiku-5-5`. Haiku's answers used only tool numbers, but it still called roll windows "rounds" even when the prompt said starts. That's worth an eval case.
+*Built:* `agent/agent.py`, defaulting to `claude-opus-5-5` at medium effort (`agent.cli --model` overrides it), with a 3-minute timeout on top of the 8-call cap and the server-side refusal fallback turned on. It runs on SDK 0.72, the newest for Python 3.8, so `output_config` and `fallbacks` go through `extra_body`. Verified live on `claude-haiku-5-5`. Haiku's answers used only tool numbers, but it still called roll windows "rounds" even when the prompt said starts. That's worth an eval case. Opus 5.5 got the same question right: it said "starts", used all 8 drivers, and flagged that the model counts Scheffler's better putting and approach numbers against him.
 
 ---
 
@@ -211,7 +211,7 @@ That changelog is your interview story and your README "results" section.
 - [x] `db.py` with consolidated tables + backfilled `predictions` (SQLite; adds an `events` table; predictions = 2018–22 out-of-fold + 7 live 2026 weeks)
 - [x] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
 - [x] Hand-written agent loop with trace logging
-- [ ] CLI answering lookup + explanation questions end to end
+- [x] CLI answering lookup + explanation questions end to end (`agent/cli.py`: a multi-turn conversation, so a clarifying question gets answered in context, plus a one-shot mode; `run()` takes `history`)
 - [ ] Unit tests for each tool (pytest). Tools 1–4 are covered in `tests/test_tools.py`, the loop in `tests/test_agent.py`.
 
 ### Weekend 2: make it trustworthy

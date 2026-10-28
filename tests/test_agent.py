@@ -158,3 +158,26 @@ def test_trace_logs_every_step(tmp_path, tool_log):
     assert tool["output"] == {"ok": "get_rankings", "args": {"top_n": 2}}
     assert all("latency_ms" in e for e in events if e["event"] in ("model_call", "tool_call"))
     assert events[-1]["answer"] == "Answer."
+
+
+def test_history_carries_the_conversation_into_the_next_turn(tmp_path, tool_log):
+    client = FakeClient([_msg(_text("Which Smith: Cameron or Jordan?")), _msg(_text("Cameron is 4th."))])
+    first = agent.run("How is Smith doing?", client=client, con=object(), trace_dir=tmp_path)
+    assert [m["role"] for m in first.messages] == ["user", "assistant"]
+
+    second = agent.run("Cameron", history=first.messages, client=client, con=object(), trace_dir=tmp_path)
+    sent = client.requests[1]["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert sent[1]["content"][0]["text"] == "Which Smith: Cameron or Jordan?"
+    assert sent[2]["content"] == "Cameron"
+    assert len(second.messages) == 4
+    assert len(first.messages) == 2          # the caller's history isn't mutated
+
+
+def test_unanswered_tool_use_is_left_out_of_history(tmp_path, tool_log):
+    # A response cut off at max_tokens mid tool call must not leave a tool_use
+    # without a tool_result, or the next turn's request is invalid.
+    client = FakeClient([_msg(_text("Let me check."), _tool("t1", "get_rankings"), stop="max_tokens")])
+    res = _run(client, tmp_path)
+    assert res.stop_reason == "max_tokens" and tool_log == []
+    assert [b["type"] for b in res.messages[-1]["content"]] == ["text"]

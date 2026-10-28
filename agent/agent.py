@@ -9,12 +9,12 @@ SDK's tool runner, so every message, tool call and result is explicit:
 Every step is appended to traces/YYYY-MM-DD.jsonl: the model's output, each
 tool's input and output, tokens and latency.
 
-    python -m agent.agent "Why is Scheffler ranked below Si Woo Kim this week?"
+Pass the previous turn's AgentResult.messages as `history` to continue a
+conversation (agent/cli.py does this, so the agent can ask a clarifying question).
 """
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import json
 import sqlite3
@@ -65,6 +65,7 @@ class AgentResult:
     input_tokens: int = 0
     output_tokens: int = 0
     run_id: str = ""
+    messages: List[dict] = field(default_factory=list)   # conversation so far, for the next turn
 
 
 class Tracer:
@@ -97,22 +98,25 @@ def _resend(content) -> List[dict]:
 
 def run(
     question: str,
+    history: Optional[List[dict]] = None,
     client: Optional[anthropic.Anthropic] = None,
     con: Optional[sqlite3.Connection] = None,
     model: str = MODEL,
     max_iterations: int = MAX_ITERATIONS,
     timeout_s: float = TIMEOUT_S,
     trace_dir: Path = TRACES_DIR,
+    conversation_id: Optional[str] = None,
 ) -> AgentResult:
     """Answer one question, calling tools as Claude asks for them."""
     client = client or anthropic.Anthropic(timeout=timeout_s)
     con = con or connect()
     run_id = uuid.uuid4().hex[:12]
     tracer = Tracer(run_id, trace_dir)
-    tracer.log("start", question=question, model=model, effort=EFFORT, max_iterations=max_iterations)
+    tracer.log("start", question=question, conversation_id=conversation_id, history_messages=len(history or []),
+               model=model, effort=EFFORT, max_iterations=max_iterations)
 
-    messages: List[dict] = [{"role": "user", "content": question}]
-    result = AgentResult(answer="", stop_reason="", iterations=0, run_id=run_id)
+    messages: List[dict] = list(history or []) + [{"role": "user", "content": question}]
+    result = AgentResult(answer="", stop_reason="", iterations=0, run_id=run_id, messages=messages)
     deadline = time.monotonic() + timeout_s
 
     while True:
@@ -148,6 +152,10 @@ def run(
         tool_uses = [b for b in response.content if b.type == "tool_use"]
         if response.stop_reason != "tool_use" or not tool_uses:
             result.stop_reason = response.stop_reason
+            # Keep the final turn for follow-ups, minus any tool_use left without a result.
+            final = [b for b in _resend(response.content) if b["type"] != "tool_use"]
+            if final:
+                messages.append({"role": "assistant", "content": final})
             break
 
         messages.append({"role": "assistant", "content": _resend(response.content)})
@@ -175,13 +183,3 @@ def run(
                output_tokens=result.output_tokens, answer=result.answer)
     return result
 
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Ask the PGA analyst agent one question")
-    parser.add_argument("question")
-    parser.add_argument("--model", default=MODEL)
-    args = parser.parse_args()
-    res = run(args.question, model=args.model)
-    print(res.answer)
-    print(f"\n[{res.stop_reason}; {res.iterations} model calls, {len(res.tool_calls)} tool calls, "
-          f"{res.input_tokens} in / {res.output_tokens} out tokens; trace {res.run_id} in {TRACES_DIR}]")
