@@ -55,6 +55,9 @@ python -m agent.cli                                    # conversation: /new star
 python -m agent.cli "Why is Scheffler ranked below Si Woo Kim this week?"   # one question
 python -m agent.cli --model claude-haiku-5-5           # cheaper model for smoke tests
 ```
+Lineups the agent proposes are only saved if you answer `y` at the CLI's approval prompt, as
+`lineups_approved_{proposal_id}.csv` in that week's `data/processed/{tid}_{slug}/` folder. The agent
+has no save tool; keep it that way.
 
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
@@ -80,7 +83,8 @@ data/
     feature_matrix.parquet
     agent.sqlite, player_crosswalk_review.csv
     {tournament_id}_{slug}/   # per-week artifacts, all together:
-        weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv
+        weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv,
+        lineups_approved_*.csv (agent CLI)
 ```
 
 Each week's inputs and outputs — salaries, features, projections, lineups — live together under

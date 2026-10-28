@@ -6,8 +6,11 @@ Run:  python -m pytest tests/test_cli.py
 
 from __future__ import annotations
 
+import json
+
 import anthropic
 import httpx
+import pandas as pd
 import pytest
 
 from agent import cli
@@ -70,3 +73,88 @@ def test_missing_api_key(monkeypatch, capsys):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert cli.main(["Top 5?"]) == 1
     assert "ANTHROPIC_API_KEY is not set" in capsys.readouterr().out
+
+
+# ── Lineup approval ────────────────────────────────────────────────────────────
+
+PROPOSAL = {
+    "proposal_id": "abc12345", "status": "proposed: not saved",
+    "event": {"event_id": "R2026060", "name": "TOUR Championship", "season": 2026},
+    "model_version": "nocut", "budget": 1_650_000, "locks": ["Scottie Scheffler"], "excludes": [],
+    "lineups": [{"players": [{"player_id": str(i), "name": f"Player {i}", "salary": 200_000 + i,
+                              "model_rank": i, "score": 0.5} for i in range(6)],
+                 "total_salary": 1_200_015, "budget_left": 449_985, "total_score": 3.0}] * 2,
+}
+
+
+@pytest.fixture()
+def folders(tmp_path, monkeypatch):
+    week = tmp_path / "processed" / "R2026060_tour_championship"
+    week.mkdir(parents=True)
+    monkeypatch.setattr(cli, "PROCESSED_DIR", tmp_path / "processed")
+    monkeypatch.setattr(cli, "TRACES_DIR", tmp_path / "traces")
+    return week, tmp_path / "traces"
+
+
+def _proposing(monkeypatch, *outputs):
+    def fake_run(question, history=None, **kwargs):
+        return AgentResult(answer="Here are 2 proposed lineups.", stop_reason="end_turn", iterations=2,
+                           tool_calls=[ToolCall("propose_lineups", {}, o) for o in outputs],
+                           run_id="r9", messages=[])
+    monkeypatch.setattr(cli, "run", fake_run)
+
+
+def _approvals(traces):
+    lines = [json.loads(l) for f in traces.glob("*.jsonl") for l in f.read_text().splitlines()]
+    return [(e["proposal_id"], e["approved"]) for e in lines if e["event"] == "approval"]
+
+
+def test_approved_proposal_is_saved_in_the_event_folder(monkeypatch, capsys, folders):
+    week, traces = folders
+    _proposing(monkeypatch, PROPOSAL)
+    _type(monkeypatch, "Build 2 lineups with Scheffler", "y")
+    cli.repl()
+    saved = pd.read_csv(week / "lineups_approved_abc12345.csv", dtype={"player_id": str})
+    assert len(saved) == 12 and sorted(saved["lineup"].unique()) == [1, 2]
+    assert set(saved["player_id"]) == {str(i) for i in range(6)}
+    assert (saved["model_version"] == "nocut").all() and saved["approved_at"].notna().all()
+    out = capsys.readouterr().out
+    assert "Lineup 2: $1,200,015" in out and "Locked: Scottie Scheffler" in out
+    assert _approvals(traces) == [("abc12345", True)]
+
+
+@pytest.mark.parametrize("reply", ["n", "", "maybe"])
+def test_anything_but_yes_saves_nothing(monkeypatch, capsys, folders, reply):
+    week, traces = folders
+    _proposing(monkeypatch, PROPOSAL)
+    _type(monkeypatch, "Build lineups", reply)
+    cli.repl()
+    assert list(week.iterdir()) == []
+    assert "Not saved." in capsys.readouterr().out
+    assert _approvals(traces) == [("abc12345", False)]
+
+
+def test_end_of_input_at_the_prompt_saves_nothing(monkeypatch, folders):
+    week, _ = folders
+    _proposing(monkeypatch, PROPOSAL)
+    _type(monkeypatch, "Build lineups")            # EOF when asked to approve
+    cli.repl()
+    assert list(week.iterdir()) == []
+
+
+def test_failed_proposals_are_not_offered(monkeypatch, capsys, folders):
+    _, traces = folders
+    _proposing(monkeypatch, {"error": "infeasible", "detail": "Over budget."})
+    _type(monkeypatch, "Build lineups")
+    cli.repl()
+    assert "Approve" not in capsys.readouterr().out and not traces.exists()
+
+
+def test_one_shot_mode_asks_too(monkeypatch, folders):
+    week, _ = folders
+    _proposing(monkeypatch, PROPOSAL)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setattr(cli, "connect", lambda: None)
+    _type(monkeypatch, "yes")
+    assert cli.main(["Build lineups"]) == 0
+    assert (week / "lineups_approved_abc12345.csv").exists()

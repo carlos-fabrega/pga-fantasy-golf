@@ -159,6 +159,8 @@ Keep the prompt short. Put detail into tool descriptions instead.
 - Only on `y` does the CLI (not the agent) save them to `lineups/approved/`.
 - The agent never has a "save" tool. Control stays with the human by design.
 
+*Built:* the CLI shows each proposal from the tool's output (not the agent's summary), so you approve the actual optimizer result. A yes writes `lineups_approved_{proposal_id}.csv` into that event's `data/processed/{tid}_{slug}/` folder, next to the optimizer's own lineup files, instead of a separate `lineups/approved/`, following the CLAUDE.md convention that each week's files live together. Anything but y/yes saves nothing. Each decision is logged to the trace as an `approval` event.
+
 ---
 
 ## 9. Evals
@@ -216,7 +218,7 @@ That changelog is your interview story and your README "results" section.
 
 ### Weekend 2: make it trustworthy
 - [x] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
-- [ ] Lineup approval flow in CLI
+- [x] Lineup approval flow in CLI
 - [ ] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [ ] Eval set (~30) + expected-answer generator + `run_evals.py`
 - [ ] Baseline eval → 2–3 improvement iterations → changelog
