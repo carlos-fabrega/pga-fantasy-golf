@@ -62,7 +62,7 @@ has no save tool; keep it that way.
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
-`python -m pytest tests/` covers the agent DB, tools, loop and CLI only (no API calls: the loop tests use a fake client). For the model, verify changes by re-running
+`python -m pytest tests/` covers the agent DB, tools, loop, CLI and guardrails only (no API calls: the loop tests use a fake client). For the model, verify changes by re-running
 `python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
@@ -72,7 +72,8 @@ by running predict → optimizer end-to-end against a known tournament ID and ey
 src/                 # one module per pipeline stage (see below)
   paths.py           # SINGLE source of truth for all filesystem paths
 agent/               # analyst agent; db.py builds the read-only SQLite DB, tools.py the agent's tools,
-                     # prompts.py the system prompt, agent.py the loop, cli.py the CLI
+                     # prompts.py the system prompt, agent.py the loop, cli.py the CLI,
+                     # guardrails.py the numeric-claim checker + lineup validator
 models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
 data/
   raw/

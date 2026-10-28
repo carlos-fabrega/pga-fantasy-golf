@@ -12,6 +12,10 @@ Lineups need your approval: after any turn where the agent proposed lineups,
 the CLI shows them (from the tool output, not the agent's summary) and asks
 Approve? [y/N]. Only a yes saves them, to the event's data/processed folder as
 lineups_approved_{proposal_id}.csv. The agent has no save tool.
+
+Guardrails (agent.guardrails): numbers in an answer that no tool output backs
+are listed under it, and a proposal that fails validation against the
+database is shown but can't be approved.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ import pandas as pd
 
 from agent.agent import MODEL, TIMEOUT_S, AgentResult, Tracer, run
 from agent.db import connect
+from agent.guardrails import validate_proposal
 from src.paths import PROCESSED_DIR, TRACES_DIR
 
 HELP = ("Ask about rankings, features, explanations, value plays, lineups or model performance. "
@@ -70,14 +75,21 @@ def _save(p: dict) -> Path:
     return path
 
 
-def review(res: AgentResult) -> None:
-    """Ask the user to approve each lineup proposal from this turn; save only on yes."""
-    proposals = [c.output for c in res.tool_calls if c.name == "propose_lineups" and "error" not in c.output]
-    if not proposals:
+def review(res: AgentResult, con) -> None:
+    """Ask the user to approve each valid lineup proposal from this turn; save only on yes."""
+    calls = [c for c in res.tool_calls if c.name == "propose_lineups" and "error" not in c.output]
+    if not calls:
         return
     tracer = Tracer(res.run_id, TRACES_DIR)
-    for p in proposals:
+    for call in calls:
+        p = call.output
         _show(p)
+        problems = validate_proposal(con, call.input, p)
+        if problems:
+            print("This proposal failed validation, so it can't be approved:")
+            print("\n".join(f"  - {x}" for x in problems))
+            tracer.log("approval", proposal_id=p["proposal_id"], approved=False, path=None, problems=problems)
+            continue
         try:
             answer = input(f"Approve and save proposal {p['proposal_id']}? [y/N] ")
         except (EOFError, KeyboardInterrupt):
@@ -101,7 +113,9 @@ def ask(question: str, history: List[dict], **kwargs) -> Optional[AgentResult]:
         print("\nCancelled.")
         return None
     print(f"\n{res.answer}\n\n{_footer(res)}")
-    review(res)
+    if res.unsupported_numbers:
+        print(f"[check: not found in any tool output: {', '.join(res.unsupported_numbers)}]")
+    review(res, kwargs.get("con"))
     return res
 
 

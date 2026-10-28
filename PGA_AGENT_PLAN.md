@@ -150,6 +150,14 @@ Keep the prompt short. Put detail into tool descriptions instead.
 3. **Constraint validation.** After `propose_lineups`, verify in plain Python that every lineup respects the salary cap, locks, excludes, and roster size. Never trust the LLM to check this.
 4. **Iteration cap + timeout** on the agent loop.
 
+*Built* in `agent/guardrails.py`:
+- **Name resolution** needed no new code. It's `resolve_player` plus the prompt rule to ask when a name is ambiguous.
+- **`check_numbers`** runs on every model-written answer in `run()`. It treats the user's words, tool inputs and tool results from the whole conversation as sources, but never the model's own earlier text. A number passes if some source value rounds to it at the precision written, ignoring sign. It understands `$1.65M`, `$408K` and shares written as percentages. It skips digits inside identifiers (`R2026060`, `roll16`, proposal ids) and list markers. Results go in `AgentResult.unsupported_numbers` and the trace's `end` event, and the CLI prints them under the answer.
+  - Replaying 10 real answers flagged only numbers the model computed itself, such as "net to about −0.06".
+  - **Known weakness:** in data-heavy runs, 20–39% of arbitrary 2-decimal numbers pass by coincidence because some unrelated value rounds to them; Opus's "−0.73" matched a 0.7345 score. With 3 decimals it's 2–6%. It's reliable against made-up precise numbers and weak against loosely rounded sums. Evals should report this rate, not treat it as proof.
+  - The hard-coded "about 0.28" came out of the `model_performance` description, since no tool output backed it.
+- **`validate_proposal`** re-checks a `propose_lineups` result against the request and the `salaries` table: roster size, duplicates, salaries known for the event, cap, reported totals and per-player salaries, locks, excludes, distinct lineups, and lineup count. The CLI runs it before the approval prompt; a failing proposal is shown with its problems, never offered, and logged as not approved. Evals can call it directly for `lineup_valid` cases.
+
 ---
 
 ## 8. Human in the loop (`cli.py`)
@@ -219,7 +227,7 @@ That changelog is your interview story and your README "results" section.
 ### Weekend 2: make it trustworthy
 - [x] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
 - [x] Lineup approval flow in CLI
-- [ ] Guardrails: name resolution, numeric-claim checker, constraint validator
+- [x] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [ ] Eval set (~30) + expected-answer generator + `run_evals.py`
 - [ ] Baseline eval → 2–3 improvement iterations → changelog
 - [ ] README: architecture diagram, how to run, eval results, lessons learned

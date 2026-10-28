@@ -93,6 +93,7 @@ def folders(tmp_path, monkeypatch):
     week.mkdir(parents=True)
     monkeypatch.setattr(cli, "PROCESSED_DIR", tmp_path / "processed")
     monkeypatch.setattr(cli, "TRACES_DIR", tmp_path / "traces")
+    monkeypatch.setattr(cli, "validate_proposal", lambda con, args, proposal: [])   # tested in test_guardrails
     return week, tmp_path / "traces"
 
 
@@ -148,6 +149,27 @@ def test_failed_proposals_are_not_offered(monkeypatch, capsys, folders):
     _type(monkeypatch, "Build lineups")
     cli.repl()
     assert "Approve" not in capsys.readouterr().out and not traces.exists()
+
+
+def test_invalid_proposal_is_shown_but_never_offered(monkeypatch, capsys, folders):
+    week, traces = folders
+    monkeypatch.setattr(cli, "validate_proposal", lambda con, args, proposal: ["Lineup 1 costs too much."])
+    _proposing(monkeypatch, PROPOSAL)
+    _type(monkeypatch, "Build lineups")
+    cli.repl()
+    out = capsys.readouterr().out
+    assert "failed validation" in out and "Lineup 1 costs too much." in out and "Approve" not in out
+    assert list(week.iterdir()) == [] and _approvals(traces) == [("abc12345", False)]
+
+
+def test_unsupported_numbers_are_shown(monkeypatch, capsys, turns):
+    def fake_run(question, history=None, **kwargs):
+        return AgentResult(answer="Gap is 0.73.", stop_reason="end_turn", iterations=1,
+                           run_id="r1", unsupported_numbers=["0.73"])
+    monkeypatch.setattr(cli, "run", fake_run)
+    _type(monkeypatch, "Why?")
+    cli.repl()
+    assert "[check: not found in any tool output: 0.73]" in capsys.readouterr().out
 
 
 def test_one_shot_mode_asks_too(monkeypatch, folders):

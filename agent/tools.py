@@ -619,7 +619,8 @@ TOOLS: List[dict] = [
             "How well the model's rankings matched actual results. Pass event for one event; season "
             "alone for that season's summary and events; neither for a summary per season. "
             "spearman is the rank correlation between model score and share of the purse won "
-            "(0 = random; the 2018-2022 backtest averages about 0.28). top10_hits is how many of "
+            "(0 = random; call with neither event nor season to compare with the 2018-2022 "
+            "backtest seasons). top10_hits is how many of "
             "the model's top 10 finished in the top 10 (ties included). winner.model_rank is where "
             "the model ranked the eventual winner."),
         "input_schema": {"type": "object", "properties": {**_EVENT_PROPS, **_VERSION_PROP}},

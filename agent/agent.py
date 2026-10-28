@@ -27,6 +27,7 @@ from typing import List, Optional
 import anthropic
 
 from agent.db import connect
+from agent.guardrails import check_numbers
 from agent.prompts import SYSTEM_PROMPT
 from agent.tools import TOOLS, run_tool
 from src.paths import TRACES_DIR
@@ -66,6 +67,7 @@ class AgentResult:
     output_tokens: int = 0
     run_id: str = ""
     messages: List[dict] = field(default_factory=list)   # conversation so far, for the next turn
+    unsupported_numbers: List[str] = field(default_factory=list)   # numbers no tool output backs (guardrails)
 
 
 class Tracer:
@@ -178,8 +180,11 @@ def run(
                          f"{result.iterations} model calls), so I don't have a complete answer.")
     elif result.stop_reason == "refusal":
         result.answer = "The model declined to answer this question."
+    else:   # the answer is the model's own words, so check its numbers
+        result.unsupported_numbers = check_numbers(result.answer, messages)
     tracer.log("end", stop_reason=result.stop_reason, iterations=result.iterations,
                tool_calls=len(result.tool_calls), input_tokens=result.input_tokens,
-               output_tokens=result.output_tokens, answer=result.answer)
+               output_tokens=result.output_tokens, answer=result.answer,
+               unsupported_numbers=result.unsupported_numbers)
     return result
 
