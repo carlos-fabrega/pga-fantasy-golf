@@ -49,10 +49,16 @@ Analyst-agent database (see `PGA_AGENT_PLAN.md`) — rebuild after each new week
 python -m agent.db --fetch   # cache scored events' leaderboards + schedule (network), then build
 python -m agent.db           # rebuild data/processed/agent.sqlite from local files only
 ```
+Ask the agent a question (needs `ANTHROPIC_API_KEY`; every run is logged to `traces/YYYY-MM-DD.jsonl`):
+```bash
+python -m agent.agent "Why is Scheffler ranked below Si Woo Kim this week?"
+python -m agent.agent "Who are the top 5 this week?" --model claude-haiku-5-5   # cheaper for smoke tests
+```
+
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
-`python -m pytest tests/` covers the agent DB and tools only. For the model, verify changes by re-running
+`python -m pytest tests/` covers the agent DB, tools and loop only (the loop tests use a fake client, no API calls). For the model, verify changes by re-running
 `python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
@@ -61,7 +67,8 @@ by running predict → optimizer end-to-end against a known tournament ID and ey
 ```
 src/                 # one module per pipeline stage (see below)
   paths.py           # SINGLE source of truth for all filesystem paths
-agent/               # analyst agent; db.py builds the read-only SQLite DB, tools.py the agent's tools
+agent/               # analyst agent; db.py builds the read-only SQLite DB, tools.py the agent's tools,
+                     # prompts.py the system prompt, agent.py the loop
 models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
 data/
   raw/

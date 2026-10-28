@@ -29,3 +29,6 @@ MODEL_BASE_PATH    = MODELS_DIR / "model_base.pkl"
 MODEL_LINKS_PATH   = MODELS_DIR / "model_links.pkl"
 MODEL_PLAYOFF_PATH = MODELS_DIR / "model_playoff.pkl"
 MODEL_NOCUT_PATH   = MODELS_DIR / "model_nocut.pkl"
+
+# ── Agent run logs ────────────────────────────────────────────────────────────
+TRACES_DIR = PROJECT_ROOT / "traces"   # one JSONL file per day (agent.agent)

@@ -288,7 +288,7 @@ def _top(contrib: pd.Series, k: int) -> List[str]:
 
 def explain_prediction(con: sqlite3.Connection, player_id: str, event: Optional[str] = None,
                        season: Optional[int] = None, compare_to: Optional[str] = None,
-                       model_version: Optional[str] = None, top_k: int = 5) -> dict:
+                       model_version: Optional[str] = None, top_k: int = 8) -> dict:
     ev = _resolve_event(con, event, season)
     version, _ = _model_version(con, ev, model_version)
     if ev["source"] == "training":
@@ -335,6 +335,11 @@ _VERSION_PROP = {
                                      "Omit to use the event's default."},
 }
 _PLAYER_ID = {"type": "string", "description": "player_id from resolve_player."}
+_FEATURE_GLOSSARY = (
+    "Feature names: sg_*_per_round_roll8/16/24 are strokes gained per round, averaged over the "
+    "player's last 8/16/24 tournament starts (starts, not rounds); made_cut_rate_* the share of "
+    "those starts making the cut; starts_last8 starts in the last 8 events; course_* / links_* / "
+    "playoff_* history at this course or event type. Every feature only uses events before this one.")
 
 TOOLS: List[dict] = [
     {
@@ -364,10 +369,7 @@ TOOLS: List[dict] = [
         "name": "get_player_features",
         "description": (
             "A player's model inputs for one event (only the features that event's model uses). "
-            "sg_* are strokes gained per round averaged over the last 8/16/24 starts (roll8/16/24); "
-            "made_cut_rate_* the share of those starts making the cut; starts_last8 starts in the "
-            "last 8 events; course_* / links_* / playoff_* history at this course or event type. "
-            "Every feature only uses events before this one. 'missing' lists features with no data."),
+            + _FEATURE_GLOSSARY + " 'missing' lists features with no data."),
         "input_schema": {"type": "object", "properties": {
             "player_id": _PLAYER_ID, **_EVENT_PROPS, **_VERSION_PROP}, "required": ["player_id"]},
     },
@@ -377,11 +379,13 @@ TOOLS: List[dict] = [
             "Why the model scored a player as it did at a live weekly event: exact per-feature "
             "SHAP contributions from the XGBoost model (contributions + baseline = score). Pass "
             "compare_to with a second player_id to get the features that drive the gap between "
-            "them. Not available for 2018-2022 backtest events."),
+            "them. If other_features_total is a large share of the score or gap, call again with "
+            "a larger top_k. A feature with a null value can still contribute: the model scores "
+            "missing data too. Not available for 2018-2022 backtest events. " + _FEATURE_GLOSSARY),
         "input_schema": {"type": "object", "properties": {
             "player_id": _PLAYER_ID, **_EVENT_PROPS,
             "compare_to": {"type": "string", "description": "Optional second player_id to compare against."},
-            "top_k": {"type": "integer", "description": "How many top features to list (default 5)."},
+            "top_k": {"type": "integer", "description": "How many top features to list (default 8)."},
             **_VERSION_PROP}, "required": ["player_id"]},
     },
 ]

@@ -7,3 +7,4 @@ pulp>=2.7
 xgboost>=2.0
 scipy>=1.7
 pytest>=7.0
+anthropic>=0.72  # 0.72 is the newest release that supports Python 3.8
