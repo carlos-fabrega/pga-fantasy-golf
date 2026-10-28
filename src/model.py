@@ -250,18 +250,12 @@ def evaluate(
 
 # ── Temporal cross-validation ──────────────────────────────────────────────────
 
-def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, variant: str = "base") -> List[Dict]:
+def _temporal_folds(df: pd.DataFrame, min_train_seasons: int, variant: str):
     """
-    Expanding-window temporal CV.
-    For each season S (starting after min_train_seasons), train on all seasons
-    < S and test on season S. Reports metrics per fold.
-
-    For variant="playoff", both train and test rows are restricted to playoff
-    tournaments by prepare(), so folds cover far fewer rows/tournaments than
-    base or links — expect noisier per-fold metrics.
+    Yield (test_season, train_seasons, model, df_test) for each expanding-window
+    fold: the model is fitted on all seasons < test_season only.
     """
     seasons = sorted(df["season"].unique())
-    results = []
 
     for i, test_season in enumerate(seasons):
         if i < min_train_seasons:
@@ -277,13 +271,57 @@ def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, variant: str = "ba
 
         model = _make_model()
         model.fit(X_train, y_train, group=groups_train)
+        yield test_season, train_seasons, model, df_test
 
+
+def temporal_cv(df: pd.DataFrame, min_train_seasons: int = 3, variant: str = "base") -> List[Dict]:
+    """
+    Expanding-window temporal CV.
+    For each season S (starting after min_train_seasons), train on all seasons
+    < S and test on season S. Reports metrics per fold.
+
+    For variant="playoff", both train and test rows are restricted to playoff
+    tournaments by prepare(), so folds cover far fewer rows/tournaments than
+    base or links — expect noisier per-fold metrics.
+    """
+    results = []
+    for test_season, train_seasons, model, df_test in _temporal_folds(df, min_train_seasons, variant):
         metrics = evaluate(model, df_test, label=f"Test {test_season} (train {train_seasons[0]}-{train_seasons[-1]})", variant=variant)
         metrics["test_season"] = test_season
         metrics["train_seasons"] = train_seasons
         results.append(metrics)
 
     return results
+
+
+def oof_predictions(df: pd.DataFrame, min_train_seasons: int = 3, variant: str = "base") -> pd.DataFrame:
+    """
+    Out-of-fold scores from the same expanding-window folds as temporal_cv():
+    every row of season S is scored by a model trained only on seasons < S, so
+    these are honest backtest predictions (unlike scoring past events with the
+    final all-seasons model, which saw them in training).
+
+    Returns one row per scored player-tournament with player_id, player_name,
+    tournament_id, tournament_name, season, finish_num, made_cut, prize_pct,
+    score (raw LambdaRank margin) and rank (1 = best within the tournament).
+    The first min_train_seasons seasons have no predictions.
+    """
+    keep = ["player_id", "player_name", "tournament_id", "tournament_name",
+            "season", "finish_num", "made_cut", TARGET_COL]
+    frames = []
+    for _, _, model, df_test in _temporal_folds(df, min_train_seasons, variant):
+        X_test, _, _ = prepare(df_test, variant=variant)
+        if X_test.empty:
+            continue
+        out = df_test.loc[X_test.index, [c for c in keep if c in df_test.columns]].copy()
+        out["score"] = model.predict(X_test)
+        frames.append(out)
+
+    if not frames:
+        return pd.DataFrame(columns=keep + ["score", "rank"])
+    oof = pd.concat(frames).reset_index(drop=True)
+    oof["rank"] = oof.groupby("tournament_id")["score"].rank(ascending=False, method="min").astype(int)
+    return oof
 
 
 # ── Training & saving ──────────────────────────────────────────────────────────

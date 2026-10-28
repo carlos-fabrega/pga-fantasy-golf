@@ -30,7 +30,7 @@ from __future__ import annotations
 import argparse
 import difflib
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pandas as pd
 from pulp import (
@@ -64,7 +64,7 @@ def _latest_projections() -> Path:
 
 # ── Name matching ──────────────────────────────────────────────────────────────
 
-def _match_names(
+def match_salaries(
     proj_df: pd.DataFrame,
     sal_df: pd.DataFrame,
     cutoff: float = 0.82,
@@ -119,11 +119,15 @@ def _solve_one(
     locks: List[str],
     excludes: List[str],
     prev_lineups: Optional[List[List[int]]] = None,
+    lock_ids: Optional[List[str]] = None,
+    exclude_ids: Optional[List[str]] = None,
 ) -> Optional[pd.DataFrame]:
     """
     Solve a single lineup optimisation.
     prev_lineups: list of index lists from already-generated lineups.
     Each prior lineup gets a constraint requiring at least 1 different player.
+    lock_ids/exclude_ids match player_id exactly, unlike the name-substring
+    locks/excludes.
     """
     prob = LpProblem("buzz_golf_lineup", LpMaximize)
     indices = list(df.index)
@@ -153,6 +157,17 @@ def _solve_one(
         if any(ek in nk or nk in ek for ek in excl_keys):
             prob += x[i] == 0
 
+    # Exact player_id locks/excludes. Compared as strings: player_id is str in
+    # weekly parquet but int once projections.csv round-trips through read_csv.
+    lock_id_set = {str(p) for p in (lock_ids or [])}
+    excl_id_set = {str(p) for p in (exclude_ids or [])}
+    for i in indices:
+        pid = str(df.at[i, "player_id"])
+        if pid in lock_id_set:
+            prob += x[i] == 1
+        if pid in excl_id_set:
+            prob += x[i] == 0
+
     # Diversity: must differ from every previous lineup by at least 1 player
     for prev in (prev_lineups or []):
         prob += lpSum(x[i] for i in prev) <= n_players - 1
@@ -175,6 +190,8 @@ def build_lineups(
     n_players: int = N_PLAYERS,
     locks: Optional[List[str]] = None,
     excludes: Optional[List[str]] = None,
+    lock_ids: Optional[List[str]] = None,
+    exclude_ids: Optional[List[str]] = None,
 ) -> List[pd.DataFrame]:
     """
     Build n_lineups distinct optimal lineups.
@@ -186,7 +203,8 @@ def build_lineups(
     prev_indices: List[List[int]] = []
 
     for k in range(n_lineups):
-        lineup = _solve_one(merged_df, budget, n_players, locks, excludes, prev_indices)
+        lineup = _solve_one(merged_df, budget, n_players, locks, excludes, prev_indices,
+                            lock_ids=lock_ids, exclude_ids=exclude_ids)
         if lineup is None:
             print(f"Could not find lineup {k+1} (infeasible with current constraints).")
             break
@@ -194,6 +212,38 @@ def build_lineups(
         prev_indices.append(list(lineup.index))
 
     return lineups
+
+
+def optimize(
+    proj_df: pd.DataFrame,
+    sal_df: pd.DataFrame,
+    n_lineups: int = 1,
+    budget: int = DEFAULT_BUDGET,
+    n_players: int = N_PLAYERS,
+    locks: Optional[List[str]] = None,
+    excludes: Optional[List[str]] = None,
+    lock_ids: Optional[List[str]] = None,
+    exclude_ids: Optional[List[str]] = None,
+) -> Tuple[List[pd.DataFrame], pd.DataFrame]:
+    """
+    Join projections to salaries and build lineups. Returns (lineups, merged);
+    lineups is empty when fewer than n_players matched a salary or the
+    constraints are infeasible, and may be shorter than n_lineups.
+    """
+    merged = match_salaries(proj_df, sal_df)
+    if len(merged) < n_players:
+        return [], merged
+    lineups = build_lineups(
+        merged_df=merged,
+        n_lineups=n_lineups,
+        budget=budget,
+        n_players=n_players,
+        locks=locks,
+        excludes=excludes,
+        lock_ids=lock_ids,
+        exclude_ids=exclude_ids,
+    )
+    return lineups, merged
 
 
 # ── Display ────────────────────────────────────────────────────────────────────
@@ -327,22 +377,19 @@ def main() -> None:
     print(f"Loaded {len(sal)} salary entries")
     print(f"Salary range: {_fmt_salary(int(sal['salary'].min()))} – {_fmt_salary(int(sal['salary'].max()))}")
 
-    # ── Merge ──────────────────────────────────────────────────────────────────
-    merged = _match_names(proj, sal)
-    if len(merged) < args.players:
-        print(f"Only {len(merged)} players matched — not enough to fill a lineup. "
-              f"Check your salary CSV.")
-        return
-
-    # ── Optimise ──────────────────────────────────────────────────────────────
-    lineups = build_lineups(
-        merged_df=merged,
+    # ── Merge + optimise ───────────────────────────────────────────────────────
+    lineups, merged = optimize(
+        proj, sal,
         n_lineups=args.lineups,
         budget=args.budget,
         n_players=args.players,
         locks=args.lock,
         excludes=args.exclude,
     )
+    if len(merged) < args.players:
+        print(f"Only {len(merged)} players matched — not enough to fill a lineup. "
+              f"Check your salary CSV.")
+        return
 
     if not lineups:
         print("No feasible lineup found. Try increasing --budget or removing locks/excludes.")

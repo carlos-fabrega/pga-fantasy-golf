@@ -35,7 +35,7 @@ _PAYOUT_PCTS = {
 _PAYOUT_MIN = 0.00110  # applied to positions beyond 65 that still made the cut
 
 
-def _pos_to_prize_pct(pos: float, made_cut: bool) -> float:
+def pos_to_prize_pct(pos: float, made_cut: bool) -> float:
     """Convert numeric finish position to prize share (fraction of purse)."""
     if not made_cut or pd.isna(pos):
         return 0.0
@@ -116,7 +116,7 @@ def load_historical(path: str | Path) -> pd.DataFrame:
     # Prize money as a fraction of purse — primary model target.
     # Purse is in millions in the CSV; prize_pct is dimensionless.
     df["prize_pct"] = [
-        _pos_to_prize_pct(pos, mc)
+        pos_to_prize_pct(pos, mc)
         for pos, mc in zip(df["finish_num"], df["made_cut"])
     ]
 
