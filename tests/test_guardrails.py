@@ -65,6 +65,16 @@ def test_numbers_inside_tool_messages_count():
     assert check_numbers("Ranks 1, 2 and 3.", _conversation("q", {"ranks": [1, 2, 3]})) == []
 
 
+def test_framing_table_rows_and_our_own_docs_are_not_claims():
+    convo = _conversation("Value plays?", {"players": [{"name": "Webb Simpson", "value": 91}]})
+    table = "| # | Player | Value |\n|---|---|---|\n| 1 | Davis Chatfield | +103 |\n| 2 | Webb Simpson | +91 |"
+    assert check_numbers(table, convo) == ["+103"]                     # the row numbers 1 and 2 are skipped
+    assert check_numbers("I can show the rest of the top 10, or the Top-25.", convo) == []
+    # The default budget and backtest years come from the tool descriptions we wrote.
+    assert check_numbers("The default cap is $1,650,000; compare the 2018–2022 backtest.", convo) == []
+    assert check_numbers("He's 12th of 30.", convo) == ["12th", "30"]   # a real claim is still checked
+
+
 def test_a_bare_m_suffix_is_not_millions():
     convo = _conversation("q", {"events": ["3M Open 2026"]})
     assert check_numbers("Salaries exist for the 3M Open.", convo) == []

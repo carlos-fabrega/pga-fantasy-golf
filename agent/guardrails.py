@@ -2,8 +2,9 @@
 Deterministic guardrails for the analyst agent (PGA_AGENT_PLAN.md §7): plain
 Python checks, no LLM.
 
-- check_numbers: every number in an answer must appear in a tool result (or
-  the user's own words) from the conversation, allowing for rounding.
+- check_numbers: every number in an answer must appear in a tool result, the
+  user's own words, or the system prompt and tool descriptions we wrote,
+  allowing for rounding. "Top 10" framing and table row numbers are skipped.
   agent.run applies it to each answer, and the CLI shows what it flags.
 - validate_proposal: re-checks a propose_lineups result against the database
   (roster size, salary cap, locks, excludes, distinct lineups) before the CLI
@@ -21,7 +22,8 @@ import re
 import sqlite3
 from typing import Iterator, List, Tuple
 
-from agent.tools import _ids
+from agent.prompts import SYSTEM_PROMPT
+from agent.tools import TOOLS, _ids
 from src.optimizer import DEFAULT_BUDGET, N_PLAYERS
 
 # A number as an answer writes it: optional sign and $, thousands commas,
@@ -32,13 +34,18 @@ _NUMBER = re.compile(
     r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
     r"(?P<suf>[KkMm](?![A-Za-z]))?(?P<pct>%)?(?:st|nd|rd|th)?(?!\w)")
 _LIST_MARKER = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)   # "1. " starting a list item
+_TABLE_ROW_NUMBER = re.compile(r"^(\s*\|)\s*\d+\s*(?=\|)", re.MULTILINE)   # "| 2 | Webb Simpson |"
+_TOP_N = re.compile(r"\btop[- ]\d+\b", re.IGNORECASE)   # framing ("the rest of the top 10"), not a claim
+# Text we wrote, so its numbers ("$1,650,000" default budget, "2018-2022") are fair to repeat.
+_REFERENCE = SYSTEM_PROMPT + json.dumps(TOOLS)
 # Tool messages write money with thousands commas ("$1,898,000"); JSON lists use ", ".
 _SOURCE_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 
 
 def _claims(answer: str) -> Iterator[Tuple[str, float, float, bool]]:
     """(as written, absolute value, rounding tolerance, is a percentage) per number."""
-    for m in _NUMBER.finditer(_LIST_MARKER.sub(" ", answer)):
+    text = _TOP_N.sub(" ", _TABLE_ROW_NUMBER.sub(r"\1 ", _LIST_MARKER.sub(" ", answer)))
+    for m in _NUMBER.finditer(text):
         num = m["num"].replace(",", "")
         decimals = len(num.split(".")[1]) if "." in num else 0
         # K/M only scale money: "$1.65M" is 1,650,000, but "3M Open" is a tournament.
@@ -47,7 +54,8 @@ def _claims(answer: str) -> Iterator[Tuple[str, float, float, bool]]:
 
 
 def _sources(messages: List[dict]) -> Iterator[str]:
-    """Text the answer may draw numbers from: the user's words, tool inputs and tool results."""
+    """Text the answer may draw numbers from: our prompt and tool docs, the user's words, tool inputs and results."""
+    yield _REFERENCE
     for msg in messages:
         content = msg["content"]
         if isinstance(content, str):

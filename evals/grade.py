@@ -63,9 +63,10 @@ def feature_mentioned(feature: str, answer: str) -> bool:
         def names_family(s: str) -> bool:
             if any(w in s for w in _SG_WORDS[family]):
                 return True
-            # Plain "strokes gained" with no other family named means the total.
+            # Plain "strokes gained" / "gains 1.4 strokes per round", with no other family named, is the total.
             others = [w for f, ws in _SG_WORDS.items() if f != "total" for w in ws]
-            return family == "total" and re.search(r"strokes[- ]gained", s) and not any(w in s for w in others)
+            return (family == "total" and re.search(r"strokes[- ]gained|strokes per round", s)
+                    and not any(w in s for w in others))
         return any(names_family(s) and re.search(rf"(?<!\d){window}(?!\d)", s) for s in _sentences(answer))
     m = re.fullmatch(r"made_cut_rate_roll(\d+)", feature)
     if m:

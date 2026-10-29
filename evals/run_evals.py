@@ -5,11 +5,17 @@ Run the agent on every eval case, grade it, and write a report.
     python -m evals.run_evals --model claude-haiku-5-5     # cheaper model
     python -m evals.run_evals --ids rank-01,lu-02          # just these cases
     python -m evals.run_evals --category lineup            # one category
+    python -m evals.run_evals --rescore evals/results/20261028-220001_claude-opus-5-5.json
 
 Every run calls the API once per case (several model calls each), so it costs
-money: about $0.0013 a case on Haiku 5.5 (measured, Oct 2026) and roughly
-$0.05-0.10 on Opus 5.5 (estimated from single traced runs). Reports land in evals/results/{timestamp}_{model}.json and .md; each
+money: about $0.0014 a case on Haiku 5.5 and $0.055 on Opus 5.5 (measured,
+Oct 2026). Reports land in evals/results/{timestamp}_{model}.json and .md; each
 case's trace is in traces/ under conversation_id eval-{timestamp}-{case id}.
+
+--rescore re-grades a saved run from its traces with the current graders and
+numeric checker, without calling the API, and writes {report}_rescored.json/.md.
+Use it after changing a grader or the checker, so the change is measured on the
+same answers rather than on a fresh, noisy run.
 """
 
 from __future__ import annotations
@@ -19,14 +25,16 @@ import datetime as dt
 import json
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import anthropic
 
-from agent.agent import MODEL, TIMEOUT_S, run
+from agent.agent import MODEL, TIMEOUT_S, ToolCall, run
 from agent.db import connect
+from agent.guardrails import check_numbers
 from evals.grade import grade, tools_ok
-from src.paths import EVAL_QUESTIONS, EVAL_RESULTS_DIR
+from src.paths import EVAL_QUESTIONS, EVAL_RESULTS_DIR, TRACES_DIR
 
 # $ per million input / output tokens (Claude API list prices, Oct 2026). Haiku's
 # rate is for prompts up to 100K tokens; these runs stay far below that.
@@ -50,6 +58,18 @@ def _cost(model: str, tokens_in: int, tokens_out: int) -> Optional[float]:
     return (tokens_in * p_in + tokens_out * p_out) / 1e6
 
 
+def _grade_turns(case: dict, answers: List[str], turn_calls: List[List[ToolCall]],
+                 flags: List[List[str]], con) -> tuple:
+    """Grade the last answer (with every turn's tool calls), plus the first reply if the case checks it."""
+    calls = [c for tc in turn_calls for c in tc]
+    passed, reason = grade(case, answers[-1], calls, con, flags[-1])
+    if "expected_first" in case:   # e.g. the agent must ask "which Kim?" before answering
+        ok, why = grade(case, answers[0], turn_calls[0], con, flags[0], key="expected_first")
+        if not ok:
+            passed, reason = False, "; ".join(x for x in (f"turn 1: {why}", reason) if x)
+    return passed, reason
+
+
 def run_case(case: dict, client, con, model: str, stamp: str) -> dict:
     """Run a case's question and any follow_ups as one conversation, then grade the last answer."""
     t0 = time.monotonic()
@@ -69,12 +89,8 @@ def run_case(case: dict, client, con, model: str, stamp: str) -> dict:
         return {**row, "passed": False, "reason": f"API error: {e}", "error": True,
                 "latency_s": round(time.monotonic() - t0, 1)}
     last = results[-1]
-    passed, reason = grade(case, last.answer, calls, con, last.unsupported_numbers)
-    if "expected_first" in case:   # e.g. the agent must ask "which Kim?" before answering
-        ok, why = grade(case, answers[0], results[0].tool_calls, con, results[0].unsupported_numbers,
-                        key="expected_first")
-        if not ok:
-            passed, reason = False, "; ".join(x for x in (f"turn 1: {why}", reason) if x)
+    passed, reason = _grade_turns(case, answers, [r.tool_calls for r in results],
+                                  [r.unsupported_numbers for r in results], con)
     tokens_in, tokens_out = sum(r.input_tokens for r in results), sum(r.output_tokens for r in results)
     return {**row, "passed": passed, "reason": reason, "error": False,
             "tools_ok": tools_ok(case, calls), "tools": [c.name for c in calls],
@@ -85,6 +101,73 @@ def run_case(case: dict, client, con, model: str, stamp: str) -> dict:
             "unsupported_numbers": [n for r in results for n in r.unsupported_numbers],
             "run_ids": [r.run_id for r in results],
             "answer": "\n\n".join(f"[{q}]\n{a}" for q, a in zip(turns, answers)) if len(turns) > 1 else last.answer}
+
+
+def _load_traces(run_ids: List[str]) -> Dict[str, List[dict]]:
+    wanted, events = set(run_ids), defaultdict(list)
+    for path in sorted(TRACES_DIR.glob("*.jsonl")):
+        with path.open() as f:
+            for line in f:
+                e = json.loads(line)
+                if e["run_id"] in wanted:
+                    events[e["run_id"]].append(e)
+    return events
+
+
+def rescore_row(case: Optional[dict], row: dict, events: Dict[str, List[dict]], con) -> dict:
+    """Re-grade one saved case from its traces with today's graders and checker. No API calls."""
+    if row["error"]:
+        return row
+    if case is None or case["question"] != row["question"]:
+        return {**row, "reason": f"{row['reason']} (case changed since this run; not re-scored)".strip()}
+    run_ids = row.get("run_ids") or [row["run_id"]]
+    if not all(any(e["event"] == "end" for e in events.get(r, [])) for r in run_ids):
+        return {**row, "reason": f"{row['reason']} (trace missing; not re-scored)".strip()}
+    # Rebuild what the checker saw live: every question, tool input and tool result so far.
+    messages: List[dict] = []
+    answers, turn_calls, flags = [], [], []
+    for rid in run_ids:
+        calls = []
+        for e in events[rid]:
+            if e["event"] == "start":
+                messages.append({"role": "user", "content": e["question"]})
+            elif e["event"] == "tool_call":
+                messages.append({"role": "assistant", "content": [{"type": "tool_use", "input": e["input"]}]})
+                messages.append({"role": "user", "content": [{"type": "tool_result",
+                                                              "content": json.dumps(e["output"])}]})
+                calls.append(ToolCall(e["name"], e["input"], e["output"]))
+            elif e["event"] == "end":
+                answers.append(e["answer"])
+                flags.append([] if e["stop_reason"] in ("max_iterations", "timeout", "refusal")
+                             else check_numbers(e["answer"], messages))
+        turn_calls.append(calls)
+    passed, reason = _grade_turns(case, answers, turn_calls, flags, con)
+    all_calls = [c for tc in turn_calls for c in tc]
+    return {**row, "passed": passed, "reason": reason, "tools_ok": tools_ok(case, all_calls),
+            "unsupported_numbers": [n for f in flags for n in f]}
+
+
+def rescore(report_path: Path) -> Path:
+    """Write {report}_rescored.json/.md next to a saved report and return the .md path."""
+    old = json.loads(report_path.read_text())
+    cases = {c["id"]: c for c in load_cases()}
+    events = _load_traces([r for row in old["cases"] for r in (row.get("run_ids") or [row.get("run_id")]) if r])
+    con = connect()
+    rows = [rescore_row(cases.get(row["id"]), row, events, con) for row in old["cases"]]
+    for before, after in zip(old["cases"], rows):
+        if before["passed"] != after["passed"] or before.get("unsupported_numbers") != after.get("unsupported_numbers"):
+            print(f"{after['id']:<9} {'pass' if before['passed'] else 'FAIL'} -> {'pass' if after['passed'] else 'FAIL'}"
+                  f"  flags {before.get('unsupported_numbers')} -> {after.get('unsupported_numbers')}")
+    meta = {k: v for k, v in old.items() if k not in ("summary", "cases")}
+    meta["rescored_from"] = report_path.name
+    summary = summarize(rows)
+    base = report_path.with_name(report_path.stem + "_rescored")
+    base.with_suffix(".json").write_text(json.dumps({**meta, "summary": summary, "cases": rows}, indent=1))
+    base.with_suffix(".md").write_text(report_md(meta, summary, rows))
+    print(f"{old['summary']['passed']}/{old['summary']['cases']} -> {summary['passed']}/{summary['cases']} passed; "
+          f"unsupported-number rate {_pct(old['summary']['unsupported_number_rate'])} -> "
+          f"{_pct(summary['unsupported_number_rate'])}. Report: {base.with_suffix('.md')}")
+    return base.with_suffix(".md")
 
 
 def _mean(xs) -> Optional[float]:
@@ -126,6 +209,8 @@ def report_md(meta: dict, summary: dict, rows: List[dict]) -> str:
     lines = [
         f"# Eval run {meta['stamp']}: {meta['model']}",
         "",
+        *([f"Re-scored from `{meta['rescored_from']}` with the current graders and checker (same answers).", ""]
+          if meta.get("rescored_from") else []),
         f"{s['passed']}/{s['cases']} passed ({_pct(s['accuracy'])})"
         + (f", {s['api_errors']} API errors" if s["api_errors"] else "") + ".",
         "",
@@ -164,7 +249,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--ids", help="Comma-separated case ids")
     parser.add_argument("--category", choices=CATEGORIES)
+    parser.add_argument("--rescore", type=Path, metavar="REPORT_JSON",
+                        help="Re-grade a saved run from its traces (no API calls)")
     args = parser.parse_args(argv)
+    if args.rescore:
+        rescore(args.rescore)
+        return 0
 
     cases = load_cases()
     if args.ids:

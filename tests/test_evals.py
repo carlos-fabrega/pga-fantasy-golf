@@ -72,6 +72,8 @@ def test_number_needs_every_value_within_tolerance():
     ("playoff_sg_hist", "His playoff record is strong.", True),
     ("sg_total_per_round_roll24", "Strong strokes-gained over the last 24 starts.", True),
     ("sg_total_per_round_roll24", "Strokes gained putting over the last 24 starts.", False),
+    ("sg_total_per_round_roll24", "He gains 1.402 strokes per round over his last 24 and last 16 starts.", True),
+    ("sg_total_per_round_roll24", "He putts 0.4 strokes per round better over 24 starts.", False),
     ("course_starts", "Nothing about it.", False),
 ])
 def test_feature_mentioned(feature, text, hit):
@@ -184,6 +186,62 @@ def test_runner_writes_reports(tmp_path, monkeypatch):
     assert s["avg_cost_usd"] == pytest.approx((10_000 * 4 + 1_000 * 20) / 1e6)
     md = report.with_suffix(".md").read_text()
     assert "1/2 passed (50%)" in md and "### b: How is Kim?" in md and "**FAIL**" in md
+
+
+def test_rescore_regrades_saved_answers_from_traces(tmp_path, monkeypatch):
+    cases = [
+        {"id": "a", "category": "lookup", "question": "Gap?", "expected_tools": ["explain_prediction"],
+         "expected": {"type": "all", "checks": [{"type": "number", "values": [0.3394], "tol": 0.00015},
+                                                {"type": "no_unsupported"}]}},
+        {"id": "b", "category": "guardrail", "question": "Where is Kim?", "follow_ups": ["Tom"],
+         "expected_tools": ["resolve_player"], "expected_first": {"type": "clarify"},
+         "expected": {"type": "exact", "value": "Tom Kim"}},
+        {"id": "c", "category": "lookup", "question": "New wording", "expected_tools": [],
+         "expected": {"type": "exact", "value": "X"}},
+    ]
+    (tmp_path / "q.jsonl").write_text("\n".join(json.dumps(c) for c in cases))
+    def ev(rid, event, **kw):
+        return json.dumps({"run_id": rid, "event": event, **kw})
+    traces = tmp_path / "traces"
+    traces.mkdir()
+    (traces / "2026-10-28.jsonl").write_text("\n".join([
+        ev("r1", "start", question="Gap?"),
+        ev("r1", "tool_call", name="explain_prediction", input={"player_id": "1"},
+           output={"difference": {"score_gap": -0.3394}}),
+        ev("r1", "end", stop_reason="end_turn", answer="Kim leads by 0.3394, the top 10 aside."),
+        ev("r2", "start", question="Where is Kim?"),
+        ev("r2", "tool_call", name="resolve_player", input={"name": "Kim"}, output=AMBIGUOUS),
+        ev("r2", "end", stop_reason="end_turn", answer="Si Woo Kim or Tom Kim?"),
+        ev("r3", "start", question="Tom"),
+        ev("r3", "end", stop_reason="end_turn", answer="Tom Kim is 4th."),
+    ]) + "\n")
+    old_rows = [
+        {"id": "a", "category": "lookup", "type": "all", "hard": False, "question": "Gap?", "passed": False,
+         "reason": "unsupported numbers ['10']", "error": False, "tools_ok": True, "unsupported_numbers": ["10"],
+         "run_ids": ["r1"], "iterations": 2, "latency_s": 1.0, "cost_usd": 0.01, "answer": "..."},
+        {"id": "b", "category": "guardrail", "type": "exact", "hard": True, "question": "Where is Kim?",
+         "passed": False, "reason": "stale", "error": False, "tools_ok": True, "unsupported_numbers": [],
+         "run_ids": ["r2", "r3"], "iterations": 2, "latency_s": 1.0, "cost_usd": 0.01, "answer": "..."},
+        {"id": "c", "category": "lookup", "type": "exact", "hard": False, "question": "Old wording",
+         "passed": True, "reason": "", "error": False, "tools_ok": True, "unsupported_numbers": [],
+         "run_ids": ["r9"], "iterations": 1, "latency_s": 1.0, "cost_usd": 0.01, "answer": "..."},
+    ]
+    report = tmp_path / "20261028-000000_claude-haiku-5-5.json"
+    report.write_text(json.dumps({"stamp": "20261028-000000", "model": "claude-haiku-5-5",
+                                  "summary": run_evals.summarize(old_rows), "cases": old_rows}))
+    monkeypatch.setattr(run_evals, "EVAL_QUESTIONS", tmp_path / "q.jsonl")
+    monkeypatch.setattr(run_evals, "TRACES_DIR", traces)
+    monkeypatch.setattr(run_evals, "connect", lambda: None)
+
+    assert run_evals.main(["--rescore", str(report)]) == 0
+    out = json.loads((tmp_path / "20261028-000000_claude-haiku-5-5_rescored.json").read_text())
+    a, b, c = out["cases"]
+    assert a["passed"] and a["unsupported_numbers"] == []          # "top 10" is framing now
+    assert b["passed"] and b["iterations"] == 2 and b["cost_usd"] == 0.01   # run stats kept
+    assert c["passed"] and "case changed" in c["reason"]           # left as it was
+    assert out["rescored_from"] == report.name and out["summary"]["passed"] == 3
+    md = (tmp_path / "20261028-000000_claude-haiku-5-5_rescored.md").read_text()
+    assert "Re-scored from `20261028-000000_claude-haiku-5-5.json`" in md
 
 
 def test_multi_turn_case_carries_history_and_checks_the_first_reply(monkeypatch):

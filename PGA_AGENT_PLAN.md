@@ -259,7 +259,7 @@ That changelog is your interview story and your README "results" section.
 - [x] Lineup approval flow in CLI
 - [x] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [x] Eval set (~30) + expected-answer generator + `run_evals.py`
-- [ ] Baseline eval → 2–3 improvement iterations → changelog. *Baseline done* (`evals/CHANGELOG.md`): Haiku and Opus both 42/44; iterations not started.
+- [ ] Baseline eval → 2–3 improvement iterations → changelog. *Baseline done* (`evals/CHANGELOG.md`): Haiku 42/44 and Opus 43/44 after the measurement fixes; iterations not started. `run_evals --rescore` re-grades a saved run from its traces at no API cost, so grader changes are measured on the same answers.
 - [ ] README: architecture diagram, how to run, eval results, lessons learned
 
 ### Stretch (only if time)

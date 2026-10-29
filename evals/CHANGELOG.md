@@ -3,6 +3,33 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-10-28: Measurement fixes, re-scored on the same answers
+
+No agent change. These fixes change only how answers are graded, and both baselines were re-scored from their traces
+(`run_evals --rescore`, no API calls), so the numbers move only because of the grading.
+
+- **Numeric checker:**
+  - Our own system prompt and tool descriptions now count as sources (the $1,650,000 default budget, "2018–2022").
+  - "Top N" framing and Markdown table row numbers are skipped.
+- **`drivers` grader:** "gains 1.4 strokes per round over his last 24 starts", with no other stat family named, counts as total strokes gained.
+
+| | Haiku 5.5 before → after | Opus 5.5 before → after |
+|---|---|---|
+| Accuracy | 42/44 → 42/44 | 42/44 → **43/44** (hard-07 now passes) |
+| Hard cases | 12/14 → 12/14 | 12/14 → 13/14 |
+| Answers with unsupported numbers | 5% → 5% | 20% → **5%** |
+| Report | `20261028-214131_claude-haiku-5-5_rescored` | `20261028-220001_claude-opus-5-5_rescored` |
+
+**What's still flagged is genuine, for both models:**
+- **hard-10:** sums the drivers when asked for a "net effect".
+- **lu-06:** works out "$898,000 over" the cap itself.
+
+**Remaining failures:**
+- **hard-10, both models:** that summing.
+- **hard-09, Haiku:** subtracts two ranking scores instead of reporting `explain_prediction`'s gap.
+
+**Trade-off:** the tool descriptions contain small numbers ("1–5", "6 players"), so small integers now always pass. Opus's correct but derived "only rank 5 is missing" isn't flagged any more. The checker never tested small integers well, since nearly every one matches some rank, so it remains a check on precise numbers.
+
 ## 2026-10-28: Baseline, 44 cases (30 standard + 14 hard)
 
 | | Haiku 5.5 | Opus 5.5 |
