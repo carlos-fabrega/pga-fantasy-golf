@@ -259,7 +259,7 @@ That changelog is your interview story and your README "results" section.
 - [x] Lineup approval flow in CLI
 - [x] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [x] Eval set (~30) + expected-answer generator + `run_evals.py`
-- [ ] Baseline eval → 2–3 improvement iterations → changelog
+- [ ] Baseline eval → 2–3 improvement iterations → changelog. *Baseline done* (`evals/CHANGELOG.md`): Haiku and Opus both 42/44; iterations not started.
 - [ ] README: architecture diagram, how to run, eval results, lessons learned
 
 ### Stretch (only if time)
