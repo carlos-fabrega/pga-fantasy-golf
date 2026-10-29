@@ -212,6 +212,27 @@ Keep the prompt short. Put detail into tool descriptions instead.
 
 That changelog is your interview story and your README "results" section.
 
+### *Built*
+
+- **Files.** `evals/generate.py` writes `questions.jsonl` (30 cases, the mix above) by running the tools against the current DB, and refuses to write a case whose premise no longer holds, for example an "infeasible" lineup that now fits. `evals/grade.py` holds deterministic graders, with no LLM judge. `evals/run_evals.py` writes a JSON and a Markdown report per run, and each case's trace is tagged `eval-{stamp}-{id}`.
+- **How each type is graded.**
+  - Names are matched ignoring accents and case.
+  - Numbers must all appear within tolerance (`$196K` counts).
+  - `drivers` passes if each feature is named, or described in one sentence by its family and window ("putting over the last 16 starts").
+  - `lineup_valid` runs `validate_proposal` against what the *user* asked for, so a lineup the agent built without the requested lock fails.
+  - `clarify`, `refusal_or_clarify` and `unavailable` check the tool trace (ambiguous result, no player data used, the expected error code), plus keyword cues in the answer.
+- **Explanation cases** use only the TOUR Championship and The Open, the live weeks whose saved models still reproduce their scores. Explaining a base week (guard-04) is the missing-data case.
+- **First run: Haiku 5.5 passed 30/30** (`evals/results/20261028-210912_claude-haiku-5-5.md`) at $0.0013 a question, with 2.6 model calls and 4.1s on average.
+  - Accuracy has no headroom: the set works as a regression suite, but it can't show improvement yet.
+  - The one metric with headroom is unsupported numbers, at 7% of answers: a sum the model worked out itself ("$898,000 over") and a threshold it picked ("outside the top 20").
+  - Before the baseline and improvement iterations, add harder cases:
+    - multi-turn clarify-then-answer;
+    - wrong premises ("why is Scheffler #1?" when he's 5th);
+    - wording traps, such as calling rolling windows "rounds";
+    - explanations whose answer is counterintuitive (a better raw stat that counts against a player);
+    - answers that must not do arithmetic.
+- **Checker fixes the eval turned up.** It now reads comma-formatted numbers inside tool messages, which previously made "$1,898,000" look unsupported. It also treats K/M as multipliers only after `$`, which previously read "3M Open" as 3 million.
+
 ---
 
 ## 10. Milestones
@@ -228,7 +249,7 @@ That changelog is your interview story and your README "results" section.
 - [x] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
 - [x] Lineup approval flow in CLI
 - [x] Guardrails: name resolution, numeric-claim checker, constraint validator
-- [ ] Eval set (~30) + expected-answer generator + `run_evals.py`
+- [x] Eval set (~30) + expected-answer generator + `run_evals.py`
 - [ ] Baseline eval → 2–3 improvement iterations → changelog
 - [ ] README: architecture diagram, how to run, eval results, lessons learned
 
