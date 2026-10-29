@@ -11,7 +11,10 @@ that turns out to fit).
     python -m evals.generate
 
 Case format (one JSON object per line):
-    id, category, question, expected_tools (all must be called), expected:
+    id, category, question, expected_tools (all called, across turns), optional
+    follow_ups (more user turns in the same conversation; the last answer is
+    graded), expected_first (a check on the first reply), hard (tagged for a
+    separate accuracy line), and expected:
       exact          value: player name the answer must contain
       number         values: numbers the answer must all contain, within tol
       drivers        must_mention: features the explanation must name (or describe)
@@ -21,6 +24,9 @@ Case format (one JSON object per line):
       clarify        the answer asks which player, naming 2+ candidates
       refusal_or_clarify   no player data for an unknown name; says so or asks
       unavailable    error: the tool error code the answer must report as unavailable
+      text           any_of: words the answer must use one of; none_of_regex: patterns it mustn't match
+      no_unsupported the numeric-claim checker flags nothing (no numbers the model worked out itself)
+      all            checks: a list of the above, all of which must pass
 """
 
 from __future__ import annotations
@@ -57,9 +63,16 @@ def _top_drivers(out: dict, n: int = 2) -> List[str]:
 def build(con: sqlite3.Connection) -> List[Dict]:
     cases: List[Dict] = []
 
-    def add(id_, category, question, tools, **expected):
-        cases.append({"id": id_, "category": category, "question": question,
-                      "expected_tools": tools, "expected": expected})
+    def add(id_, category, question, tools, follow_ups=None, expected_first=None, hard=False, **expected):
+        case = {"id": id_, "category": category, "question": question,
+                "expected_tools": tools, "expected": expected}
+        if follow_ups:
+            case["follow_ups"] = follow_ups
+        if expected_first:
+            case["expected_first"] = expected_first
+        if hard:
+            case["hard"] = True
+        cases.append(case)
 
     week = _ok(con, "get_rankings", top_n=30)                       # "this week"
     week_name = week["event"]["name"]
@@ -191,6 +204,93 @@ def build(con: sqlite3.Connection) -> List[Dict]:
                      "value_report", event="U.S. Open", season=2019)
     unavailable_case("guard-06", "Who does the model rank first at the 2026 Masters?", ["get_rankings"],
                      "get_rankings", event="Masters", season=2026)
+
+    # ── Hard cases ─────────────────────────────────────────────────────────────
+    # Multi-turn: the follow-up only makes sense with the first answer's context.
+    tom = rank["Tom Kim"]
+    add("hard-01", "guardrail", "Where is Kim ranked this week, and what's the model score?",
+        ["resolve_player"], follow_ups=["Tom"], expected_first={"type": "clarify"}, hard=True,
+        type="all", checks=[{"type": "exact", "value": "Tom Kim"},
+                            {"type": "number", "values": [tom["rank"], tom["score"]], "tol": 0.00015}])
+    out = _ok(con, "explain_prediction", player_id=top1["player_id"])
+    add("hard-02", "explanation", "Who is ranked #1 this week?", ["get_rankings", "explain_prediction"],
+        follow_ups=["Why?"], hard=True, type="drivers", must_mention=_top_drivers(out))
+    si_woo, tom_id = _player_id(con, "Si Woo Kim"), _player_id(con, "Tom Kim")
+    _ok(con, "propose_lineups", locks=[tom_id], excludes=[si_woo])
+    add("hard-03", "lineup", "Build a lineup for this week.", ["propose_lineups"],
+        follow_ups=["Now lock Tom Kim and leave out Si Woo Kim."], hard=True,
+        type="lineup_valid", n_lineups=1, locks=[tom_id], excludes=[si_woo], budget=DEFAULT_BUDGET)
+
+    # Wrong premises: the answer must correct them from the data.
+    if top1["player_id"] == scheffler:
+        raise RuntimeError("hard-04's premise (Scheffler isn't #1) no longer holds")
+    add("hard-04", "guardrail", "Why is Scottie Scheffler ranked #1 this week?", ["resolve_player"], hard=True,
+        type="all", checks=[{"type": "exact", "value": top1["name"]},
+                            {"type": "number", "values": [rank["Scottie Scheffler"]["rank"]], "tol": 0}])
+    winner = perf["winner"]["name"]
+    if winner == "Tom Kim":
+        raise RuntimeError("hard-05's premise (Tom Kim didn't win) no longer holds")
+    add("hard-05", "guardrail", "Why did Tom Kim win the 2026 Wyndham Championship?", ["model_performance"],
+        hard=True, type="exact", value=winner)
+
+    # Wording traps: the windows are tournament starts, not rounds.
+    f = _ok(con, "get_player_features", player_id=si_woo)["features"]
+    add("hard-06", "lookup", "What is Si Woo Kim's putting strokes gained over the last 16 rounds, going into this week?",
+        ["resolve_player", "get_player_features"], hard=True,
+        type="all", checks=[{"type": "number", "values": [f["sg_putt_per_round_roll16"]], "tol": 0.0015},
+                            {"type": "text", "any_of": ["start"]}])
+    out = _ok(con, "explain_prediction", player_id=tom_id)
+    add("hard-07", "explanation", "Explain Tom Kim's ranking this week in plain English.",
+        ["resolve_player", "explain_prediction"], hard=True,
+        type="all", checks=[{"type": "drivers", "must_mention": _top_drivers(out)},
+                            {"type": "text", "none_of_regex": [r"(?<!\d)(8|16|24)[- ]rounds?\b", r"last (8|16|24) rounds"]}])
+
+    # Counterintuitive: a better raw number that counts against the player. The tools give the
+    # contribution, not the reason, so the answer must say it can't tell why.
+    gap = _ok(con, "explain_prediction", player_id=scheffler, compare_to=si_woo)["difference"]
+    putt = next(d for d in gap["top_drivers"] if d["feature"] == "sg_putt_per_round_roll16")
+    if not (putt["value"] > putt["value_compare"] and putt["contribution_gap"] < 0):
+        raise RuntimeError("hard-08's premise (better putting that counts against Scheffler) no longer holds")
+    add("hard-08", "explanation",
+        "Scheffler's putting numbers are better than Si Woo Kim's, so why does putting count against Scheffler in the model?",
+        ["resolve_player", "explain_prediction"], hard=True,
+        type="all", checks=[{"type": "drivers", "must_mention": ["sg_putt_per_round_roll16"]},
+                            {"type": "number", "values": [putt["contribution_gap"]], "tol": 0.0015},
+                            {"type": "text", "any_of": ["can't", "cannot", "doesn't say", "doesn't explain", "doesn't show",
+                                                        "not why", "don't know", "no way to", "only report", "only show",
+                                                        "interact", "not the reason", "doesn't tell"]}])
+
+    # No arithmetic: every number must come from a tool.
+    add("hard-09", "lookup", "By how much does the model's score for Si Woo Kim beat Scheffler's this week?",
+        ["resolve_player"], hard=True,
+        type="all", checks=[{"type": "number", "values": [gap["score_gap"]], "tol": 0.00015},
+                            {"type": "no_unsupported"}])
+    add("hard-10", "explanation", "What's the net effect of Scheffler's strengths and weaknesses against Si Woo Kim this week?",
+        ["resolve_player", "explain_prediction"], hard=True,
+        type="all", checks=[{"type": "drivers", "must_mention": [d["feature"] for d in gap["top_drivers"][:2]]},
+                            {"type": "no_unsupported"}])
+
+    # Out of scope: scores aren't prize money.
+    add("hard-11", "guardrail", "How much prize money will Scottie Scheffler win this week?", [], hard=True,
+        type="text", any_of=["not prize", "isn't prize", "not a prize", "aren't prize", "doesn't predict", "don't predict",
+                             "can't predict", "cannot predict", "relative", "doesn't project", "not projected", "no prize",
+                             "can't tell you how much", "not a forecast"],
+        none_of_regex=[r"(win|earn|take home|prize)[^.]{0,40}\$\s?\d"])
+
+    # Filtering and comparing: no tool answers these in one call.
+    cheap = sorted((p for p in value_week if p["salary"] < 150_000), key=lambda p: p["model_rank"])[0]
+    add("hard-12", "value", "Who is the highest-ranked player this week with a salary under $150,000?",
+        ["value_report"], hard=True, type="exact", value=cheap["name"])
+    perf_open = _ok(con, "model_performance", event=open_id)["spearman"]
+    perf_scot = _ok(con, "model_performance", event="Genesis Scottish Open", season=2026)["spearman"]
+    add("hard-13", "lookup", "Did the model do better at the 2026 Open Championship or the 2026 Genesis Scottish Open?",
+        ["model_performance"], hard=True, type="number", values=[perf_open, perf_scot], tol=0.0015)
+    kims = [p["player_id"] for p in value_week if p["name"].split()[-1] == "Kim"]
+    if len(kims) != 2:
+        raise RuntimeError(f"hard-14 needs exactly two Kims in this week's field, found {len(kims)}")
+    lineup_case("hard-14", "Build 3 lineups for this week that include both Kims in this week's field.",
+                n=3, locks=kims)
+    cases[-1]["hard"] = True
 
     print(f"'This week' is the {week_name} ({week['event']['event_id']}); {top2['name']} is 2nd.")
     return cases

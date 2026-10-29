@@ -31,13 +31,19 @@ def _call(tool, output, **inp):
 
 def test_case_file_is_well_formed():
     cases = run_evals.load_cases()
-    assert len({c["id"] for c in cases}) == len(cases) == 30
+    assert len({c["id"] for c in cases}) == len(cases) == 44
     assert Counter(c["category"] for c in cases) == {
-        "lookup": 8, "explanation": 6, "value": 4, "lineup": 6, "guardrail": 6}
+        "lookup": 11, "explanation": 10, "value": 5, "lineup": 8, "guardrail": 10}
+    assert sum(c.get("hard", False) for c in cases) == 14
     tool_names = {t["name"] for t in TOOLS}
+
+    def types(exp):
+        return [exp["type"]] + [t for c in exp.get("checks", []) for t in types(c)]
     for c in cases:
-        assert c["expected"]["type"] in GRADERS and c["question"]
-        assert set(c["expected_tools"]) <= tool_names
+        assert c["question"] and set(c["expected_tools"]) <= tool_names
+        for key in ("expected", "expected_first"):
+            if key in c:
+                assert set(types(c[key])) <= set(GRADERS)
 
 
 # ── Graders ────────────────────────────────────────────────────────────────────
@@ -64,6 +70,8 @@ def test_number_needs_every_value_within_tolerance():
     ("sg_app_per_round_roll8", "His 8-start iron play leads the field.", True),
     ("sg_ott_per_round_roll24", "Driving across 24 starts helps.", True),
     ("playoff_sg_hist", "His playoff record is strong.", True),
+    ("sg_total_per_round_roll24", "Strong strokes-gained over the last 24 starts.", True),
+    ("sg_total_per_round_roll24", "Strokes gained putting over the last 24 starts.", False),
     ("course_starts", "Nothing about it.", False),
 ])
 def test_feature_mentioned(feature, text, hit):
@@ -123,6 +131,20 @@ def test_lineup_valid_checks_the_users_constraints_not_the_agents(con):
     assert "wanted 2" in grade(case, "", [_call("propose_lineups", one)], con)[1]
 
 
+def test_text_no_unsupported_and_all():
+    case = _case("text", any_of=["start"], none_of_regex=[r"(?<!\d)16[- ]rounds?\b"])
+    assert grade(case, "Over the last 16 starts.", [], None)[0]
+    assert not grade(case, "Over 16 rounds.", [], None)[0]
+    assert not grade(case, "Recently.", [], None)[0]
+    assert grade(_case("no_unsupported"), "x", [], None, unsupported=[])[0]
+    assert "0.52" in grade(_case("no_unsupported"), "x", [], None, unsupported=["0.52"])[1]
+    both = _case("all", checks=[{"type": "exact", "value": "Si Woo Kim"},
+                                {"type": "number", "values": [5], "tol": 0}])
+    assert grade(both, "Si Woo Kim is #1; Scheffler is 5th.", [], None)[0]
+    ok, reason = grade(both, "Scheffler is 5th.", [], None)
+    assert not ok and "Si Woo Kim" in reason
+
+
 def test_tools_ok():
     case = {**_case("exact", value="x"), "expected_tools": ["resolve_player", "get_rankings"]}
     assert tools_ok(case, [_call("resolve_player", {}), _call("get_rankings", {}), _call("get_rankings", {})])
@@ -162,3 +184,32 @@ def test_runner_writes_reports(tmp_path, monkeypatch):
     assert s["avg_cost_usd"] == pytest.approx((10_000 * 4 + 1_000 * 20) / 1e6)
     md = report.with_suffix(".md").read_text()
     assert "1/2 passed (50%)" in md and "### b: How is Kim?" in md and "**FAIL**" in md
+
+
+def test_multi_turn_case_carries_history_and_checks_the_first_reply(monkeypatch):
+    case = {"id": "m", "category": "guardrail", "question": "Where is Kim?", "follow_ups": ["Tom"],
+            "expected_tools": ["resolve_player", "get_rankings"], "hard": True,
+            "expected_first": {"type": "clarify"}, "expected": {"type": "number", "values": [4], "tol": 0}}
+    seen = []
+
+    def fake_run(question, history=None, **kwargs):
+        seen.append((question, len(history)))
+        if question == "Where is Kim?":
+            calls = [ToolCall("resolve_player", {}, AMBIGUOUS)]
+            answer = first_answer[0]
+        else:
+            calls, answer = [ToolCall("get_rankings", {}, {})], "Tom Kim is 4th."
+        return AgentResult(answer=answer, stop_reason="end_turn", iterations=1, tool_calls=calls,
+                           input_tokens=1, output_tokens=1, run_id=question[:3],
+                           messages=list(history) + [{"role": "user"}, {"role": "assistant"}])
+    monkeypatch.setattr(run_evals, "run", fake_run)
+
+    first_answer = ["Do you mean Si Woo Kim or Tom Kim?"]
+    row = run_evals.run_case(case, None, None, "claude-haiku-5-5", "s")
+    assert seen == [("Where is Kim?", 0), ("Tom", 2)]
+    assert row["passed"] and row["tools_ok"] and row["iterations"] == 2 and row["hard"]
+    assert row["run_ids"] == ["Whe", "Tom"] and "[Tom]\nTom Kim is 4th." in row["answer"]
+
+    first_answer[0] = "Si Woo Kim is 1st."           # answered without asking
+    row = run_evals.run_case(case, None, None, "claude-haiku-5-5", "s")
+    assert not row["passed"] and row["reason"].startswith("turn 1:")

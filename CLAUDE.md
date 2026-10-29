@@ -63,7 +63,7 @@ Agent evals (`evals/`, see `PGA_AGENT_PLAN.md` §9). Regenerate the cases after 
 since expected answers come from the current data. A run calls the API once per case, so it costs money:
 ```bash
 python -m evals.generate                                  # evals/questions.jsonl from agent.sqlite
-python -m evals.run_evals --model claude-haiku-5-5        # all 30 cases → evals/results/{stamp}_{model}.md/.json
+python -m evals.run_evals --model claude-haiku-5-5        # all 44 cases → evals/results/{stamp}_{model}.md/.json
 python -m evals.run_evals --ids expl-01,lu-02             # or --category lineup
 ```
 

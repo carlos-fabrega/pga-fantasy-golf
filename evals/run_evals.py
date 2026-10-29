@@ -51,23 +51,40 @@ def _cost(model: str, tokens_in: int, tokens_out: int) -> Optional[float]:
 
 
 def run_case(case: dict, client, con, model: str, stamp: str) -> dict:
+    """Run a case's question and any follow_ups as one conversation, then grade the last answer."""
     t0 = time.monotonic()
     row = {"id": case["id"], "category": case["category"], "type": case["expected"]["type"],
-           "question": case["question"]}
+           "hard": case.get("hard", False), "question": case["question"]}
+    turns = [case["question"], *case.get("follow_ups", [])]
+    history, calls, answers, results = [], [], [], []
     try:
-        res = run(case["question"], client=client, con=con, model=model,
-                  conversation_id=f"eval-{stamp}-{case['id']}")
+        for q in turns:
+            res = run(q, history=history, client=client, con=con, model=model,
+                      conversation_id=f"eval-{stamp}-{case['id']}")
+            history = res.messages
+            calls += res.tool_calls
+            answers.append(res.answer)
+            results.append(res)
     except anthropic.APIError as e:
         return {**row, "passed": False, "reason": f"API error: {e}", "error": True,
                 "latency_s": round(time.monotonic() - t0, 1)}
-    passed, reason = grade(case, res.answer, res.tool_calls, con)
+    last = results[-1]
+    passed, reason = grade(case, last.answer, calls, con, last.unsupported_numbers)
+    if "expected_first" in case:   # e.g. the agent must ask "which Kim?" before answering
+        ok, why = grade(case, answers[0], results[0].tool_calls, con, results[0].unsupported_numbers,
+                        key="expected_first")
+        if not ok:
+            passed, reason = False, "; ".join(x for x in (f"turn 1: {why}", reason) if x)
+    tokens_in, tokens_out = sum(r.input_tokens for r in results), sum(r.output_tokens for r in results)
     return {**row, "passed": passed, "reason": reason, "error": False,
-            "tools_ok": tools_ok(case, res.tool_calls), "tools": [c.name for c in res.tool_calls],
-            "stop_reason": res.stop_reason, "iterations": res.iterations,
+            "tools_ok": tools_ok(case, calls), "tools": [c.name for c in calls],
+            "stop_reason": last.stop_reason, "iterations": sum(r.iterations for r in results),
             "latency_s": round(time.monotonic() - t0, 1),
-            "input_tokens": res.input_tokens, "output_tokens": res.output_tokens,
-            "cost_usd": _cost(model, res.input_tokens, res.output_tokens),
-            "unsupported_numbers": res.unsupported_numbers, "run_id": res.run_id, "answer": res.answer}
+            "input_tokens": tokens_in, "output_tokens": tokens_out,
+            "cost_usd": _cost(model, tokens_in, tokens_out),
+            "unsupported_numbers": [n for r in results for n in r.unsupported_numbers],
+            "run_ids": [r.run_id for r in results],
+            "answer": "\n\n".join(f"[{q}]\n{a}" for q, a in zip(turns, answers)) if len(turns) > 1 else last.answer}
 
 
 def _mean(xs) -> Optional[float]:
@@ -86,6 +103,7 @@ def summarize(rows: List[dict]) -> dict:
         "accuracy": _mean([r["passed"] for r in rows]),
         "by_category": {c: {"cases": len(rs), "accuracy": _mean([r["passed"] for r in rs])}
                         for c in CATEGORIES for rs in [by_cat.get(c, [])] if rs},
+        "hard": {"cases": sum(r["hard"] for r in rows), "accuracy": _mean([r["passed"] for r in rows if r["hard"]])},
         "tool_call_correctness": _mean([r["tools_ok"] for r in ran]),
         # Share of answers where the numeric-claim checker flagged at least one number.
         "unsupported_number_rate": _mean([bool(r["unsupported_numbers"]) for r in ran]),
@@ -114,6 +132,7 @@ def report_md(meta: dict, summary: dict, rows: List[dict]) -> str:
         "| Metric | Value |", "|---|---|",
         f"| Accuracy | {_pct(s['accuracy'])} |",
         *[f"| {c} | {_pct(v['accuracy'])} ({v['cases']} cases) |" for c, v in s["by_category"].items()],
+        f"| hard cases | {_pct(s['hard']['accuracy'])} ({s['hard']['cases']} cases) |",
         f"| Tool-call correctness | {_pct(s['tool_call_correctness'])} |",
         f"| Answers with unsupported numbers | {_pct(s['unsupported_number_rate'])} |",
         f"| Avg model calls | {calls} |",
@@ -126,7 +145,7 @@ def report_md(meta: dict, summary: dict, rows: List[dict]) -> str:
         "| Case | Result | Tools OK | Unsupported numbers | Calls | Reason |", "|---|---|---|---|---|---|",
     ]
     for r in rows:
-        lines.append(f"| {r['id']} | {'pass' if r['passed'] else '**FAIL**'} | "
+        lines.append(f"| {r['id']}{' (hard)' if r['hard'] else ''} | {'pass' if r['passed'] else '**FAIL**'} | "
                      f"{'' if r['error'] else ('yes' if r['tools_ok'] else 'no')} | "
                      f"{', '.join(r.get('unsupported_numbers') or [])} | {r.get('iterations', '')} | "
                      f"{r['reason']} |")
@@ -136,7 +155,7 @@ def report_md(meta: dict, summary: dict, rows: List[dict]) -> str:
         for r in failures:
             lines += [f"### {r['id']}: {r['question']}", "",
                       f"**Why:** {r['reason']}. Tools: {', '.join(r.get('tools', [])) or 'none'}. "
-                      f"Trace: `{r.get('run_id', '')}`.", "", "> " + (r.get("answer") or "").replace("\n", "\n> "), ""]
+                      f"Traces: `{', '.join(r.get('run_ids', []))}`.", "", "> " + (r.get("answer") or "").replace("\n", "\n> "), ""]
     return "\n".join(lines) + "\n"
 
 

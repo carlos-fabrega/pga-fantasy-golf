@@ -214,7 +214,7 @@ That changelog is your interview story and your README "results" section.
 
 ### *Built*
 
-- **Files.** `evals/generate.py` writes `questions.jsonl` (30 cases, the mix above) by running the tools against the current DB, and refuses to write a case whose premise no longer holds, for example an "infeasible" lineup that now fits. `evals/grade.py` holds deterministic graders, with no LLM judge. `evals/run_evals.py` writes a JSON and a Markdown report per run, and each case's trace is tagged `eval-{stamp}-{id}`.
+- **Files.** `evals/generate.py` writes `questions.jsonl` (30 cases in the mix above, plus the 14 hard cases below) by running the tools against the current DB, and refuses to write a case whose premise no longer holds, for example an "infeasible" lineup that now fits. `evals/grade.py` holds deterministic graders, with no LLM judge. `evals/run_evals.py` writes a JSON and a Markdown report per run, and each case's trace is tagged `eval-{stamp}-{id}`.
 - **How each type is graded.**
   - Names are matched ignoring accents and case.
   - Numbers must all appear within tolerance (`$196K` counts).
@@ -225,12 +225,21 @@ That changelog is your interview story and your README "results" section.
 - **First run: Haiku 5.5 passed 30/30** (`evals/results/20261028-210912_claude-haiku-5-5.md`) at $0.0013 a question, with 2.6 model calls and 4.1s on average.
   - Accuracy has no headroom: the set works as a regression suite, but it can't show improvement yet.
   - The one metric with headroom is unsupported numbers, at 7% of answers: a sum the model worked out itself ("$898,000 over") and a threshold it picked ("outside the top 20").
-  - Before the baseline and improvement iterations, add harder cases:
-    - multi-turn clarify-then-answer;
-    - wrong premises ("why is Scheffler #1?" when he's 5th);
-    - wording traps, such as calling rolling windows "rounds";
-    - explanations whose answer is counterintuitive (a better raw stat that counts against a player);
-    - answers that must not do arithmetic.
+- **14 hard cases added (44 total), tagged `hard`, with their own line in the report:**
+  - 3 multi-turn (`follow_ups`, plus `expected_first` to require the "which Kim?" question before the answer);
+  - 2 wrong premises ("Why is Scheffler #1?", "Why did Tom Kim win the Wyndham?");
+  - 2 rounds-vs-starts wording traps;
+  - 1 counterintuitive explanation (better putting that counts against Scheffler), which must admit the tools don't say why;
+  - 2 no-arithmetic answers;
+  - 1 out-of-scope question (prize money);
+  - 3 filter or compare questions no single tool answers.
+  - New check types support them: `text` (required words, forbidden patterns), `no_unsupported`, and `all` for combinations.
+  - Haiku 5.5 now scores **42/44 (95%), hard 12/14** (`evals/results/20261028-214131_claude-haiku-5-5.md`). Both failures are genuine. In hard-10 it summed the drivers ("−0.73"). In hard-09 it subtracted two ranking scores ("about 0.34") instead of reporting `explain_prediction`'s exact gap.
+  - **Single runs are noisy:** expl-02 flipped between two identical runs. Compare changes over repeated runs, or at least count the flips, before calling one an improvement.
+- **Lessons from the first hard run:**
+  - A failure can be the grader: "strokes-gained over the last 24 starts" means the total. Plain "strokes gained" with no other family named now counts as total.
+  - A failure can also be the case: "both Kims" made the agent ask which ones, which our own prompt tells it to do. The question now says "both Kims in this week's field".
+  - Read the failing answers before changing the agent.
 - **Checker fixes the eval turned up.** It now reads comma-formatted numbers inside tool messages, which previously made "$1,898,000" look unsupported. It also treats K/M as multipliers only after `$`, which previously read "3M Open" as 3 million.
 
 ---
