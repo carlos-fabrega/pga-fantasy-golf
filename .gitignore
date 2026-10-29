@@ -7,6 +7,9 @@ data/raw/*
 # Trained models — regenerable via `python -m src.model`
 models/
 
+# Agent run traces (full prompts + tool outputs)
+traces/
+
 # Salary files (personal league data)
 salaries*.csv
 

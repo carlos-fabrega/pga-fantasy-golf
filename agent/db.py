@@ -78,6 +78,7 @@ def display_name(name: str) -> str:
 # confirming it's the same golfer (it shows up as unlinked_near_match in review).
 MANUAL_LINKS: Dict[str, str] = {
     "48867": "4566443",   # Matti Schmid = Matthias Schmid (nickname, not a prefix)
+    "55182": "4602673",   # Tom Kim = Joohyung Kim (legal name in the training data)
 }
 
 

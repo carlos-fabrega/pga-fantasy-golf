@@ -100,13 +100,13 @@ Prefer specific, parameterized tools over a raw SQL tool. They're safer, easier 
 
 | Tool | Inputs | Returns | Notes |
 |---|---|---|---|
-| `resolve_player` | `name: str` | `player_id`, canonical name, or a list of candidates if ambiguous | Fuzzy match (e.g. `rapidfuzz`). If ambiguous, the agent must ask the user. |
-| `get_rankings` | `event_id` (default: upcoming), `top_n` | ranked players with model score | |
+| `resolve_player` | `name: str` | `player_id`, canonical name, or a list of candidates if ambiguous | Fuzzy match (e.g. `rapidfuzz`). If ambiguous, the agent must ask the user. *Built:* stdlib `difflib` (rapidfuzz isn't installed); exact → name-prefix → last/first name → fuzzy, and a fuzzy hit always comes back as a candidate to confirm, never auto-resolved. |
+| `get_rankings` | `event_id` (default: upcoming), `top_n` | ranked players with model score | *Built:* every event tool takes `event` (an id or part of a tournament name) + optional `season`; the default is the latest scored event. Picks the variant `predict` would auto-select, falling back to base. |
 | `get_player_features` | `player_id`, `event_id` | feature values for that event | |
-| `explain_prediction` | `player_id`, `event_id`, `compare_to?` | top feature contributions | Use XGBoost `predict(..., pred_contribs=True)` for real SHAP contributions. Not LLM guesswork. |
-| `value_report` | `event_id`, `top_n` | players ranked by model score per $1K salary | |
-| `propose_lineups` | `event_id`, `n_lineups`, `locks[]`, `excludes[]`, `rules{}` | proposal with `proposal_id`, lineups, total salary, projected score | Calls the PuLP optimizer. **Does not save anything.** |
-| `model_performance` | `season` or `event_ids[]` | mean Spearman, hit rates, best/worst events | Computed from `predictions` vs `results` |
+| `explain_prediction` | `player_id`, `event_id`, `compare_to?` | top feature contributions | Use XGBoost `predict(..., pred_contribs=True)` for real SHAP contributions. Not LLM guesswork. *Built:* live weeks only, since backtest fold models aren't saved. It refuses with `model_changed` when the saved model no longer reproduces the stored score; as of Oct 2026 that's every base-model week except the TOUR Championship. |
+| `value_report` | `event_id`, `top_n` | players ranked by model score per $1K salary | *Built:* ranks by `salary_rank - model_rank` instead, because most weekly scores are negative ranker margins (115 of 144 at Wyndham), so score per $1K would favour expensive weak players. Live weeks with salaries only. |
+| `propose_lineups` | `event_id`, `n_lineups`, `locks[]`, `excludes[]`, `rules{}` | proposal with `proposal_id`, lineups, total salary, projected score | Calls the PuLP optimizer. **Does not save anything.** *Built:* reuses `optimizer.build_lineups` on the DB's stored scores and salaries; locks and excludes are player_ids; `rules{}` is just `budget` (default $1.65M); 1–5 lineups. Checks impossible locks before solving. |
+| `model_performance` | `season` or `event_ids[]` | mean Spearman, hit rates, best/worst events | Computed from `predictions` vs `results` *Built:* takes `event` or `season` (neither gives a per-season summary). Spearman reuses `model._spearman_by_tournament`, so it matches `--cv` (backtest seasons average 0.26–0.32; 2026 live 0.18 mean, 0.25 median over 7 events). Also reports top-10 hits and where the model ranked the winner. |
 
 Each tool:
 - Has a JSON schema with clear descriptions (the description is part of your context engineering).
@@ -124,6 +124,8 @@ Each tool:
 5. Log every step (messages, tool name, inputs, outputs, tokens, latency) to `traces/YYYY-MM-DD.jsonl`.
 
 Make the model ID a config value so you can compare models in evals.
+
+*Built:* `agent/agent.py`, defaulting to `claude-opus-5-5` at medium effort (`agent.cli --model` overrides it), with a 3-minute timeout on top of the 8-call cap and the server-side refusal fallback turned on. It runs on SDK 0.72, the newest for Python 3.8, so `output_config` and `fallbacks` go through `extra_body`. Verified live on `claude-haiku-5-5`. Haiku's answers used only tool numbers, but it still called roll windows "rounds" even when the prompt said starts. That's worth an eval case. Opus 5.5 got the same question right: it said "starts", used all 8 drivers, and flagged that the model counts Scheffler's better putting and approach numbers against him.
 
 ---
 
@@ -148,6 +150,14 @@ Keep the prompt short. Put detail into tool descriptions instead.
 3. **Constraint validation.** After `propose_lineups`, verify in plain Python that every lineup respects the salary cap, locks, excludes, and roster size. Never trust the LLM to check this.
 4. **Iteration cap + timeout** on the agent loop.
 
+*Built* in `agent/guardrails.py`:
+- **Name resolution** needed no new code. It's `resolve_player` plus the prompt rule to ask when a name is ambiguous.
+- **`check_numbers`** runs on every model-written answer in `run()`. It treats the user's words, tool inputs and tool results from the whole conversation as sources, but never the model's own earlier text. A number passes if some source value rounds to it at the precision written, ignoring sign. It understands `$1.65M`, `$408K` and shares written as percentages. It skips digits inside identifiers (`R2026060`, `roll16`, proposal ids) and list markers. Results go in `AgentResult.unsupported_numbers` and the trace's `end` event, and the CLI prints them under the answer.
+  - Replaying 10 real answers flagged only numbers the model computed itself, such as "net to about −0.06".
+  - **Known weakness:** in data-heavy runs, 20–39% of arbitrary 2-decimal numbers pass by coincidence because some unrelated value rounds to them; Opus's "−0.73" matched a 0.7345 score. With 3 decimals it's 2–6%. It's reliable against made-up precise numbers and weak against loosely rounded sums. Evals should report this rate, not treat it as proof.
+  - The hard-coded "about 0.28" came out of the `model_performance` description, since no tool output backed it.
+- **`validate_proposal`** re-checks a `propose_lineups` result against the request and the `salaries` table: roster size, duplicates, salaries known for the event, cap, reported totals and per-player salaries, locks, excludes, distinct lineups, and lineup count. The CLI runs it before the approval prompt; a failing proposal is shown with its problems, never offered, and logged as not approved. Evals can call it directly for `lineup_valid` cases.
+
 ---
 
 ## 8. Human in the loop (`cli.py`)
@@ -156,6 +166,8 @@ Keep the prompt short. Put detail into tool descriptions instead.
 - The CLI prints the lineups and asks `Approve? [y/N]`.
 - Only on `y` does the CLI (not the agent) save them to `lineups/approved/`.
 - The agent never has a "save" tool. Control stays with the human by design.
+
+*Built:* the CLI shows each proposal from the tool's output (not the agent's summary), so you approve the actual optimizer result. A yes writes `lineups_approved_{proposal_id}.csv` into that event's `data/processed/{tid}_{slug}/` folder, next to the optimizer's own lineup files, instead of a separate `lineups/approved/`, following the CLAUDE.md convention that each week's files live together. Anything but y/yes saves nothing. Each decision is logged to the trace as an `approval` event.
 
 ---
 
@@ -200,6 +212,36 @@ Keep the prompt short. Put detail into tool descriptions instead.
 
 That changelog is your interview story and your README "results" section.
 
+### *Built*
+
+- **Files.** `evals/generate.py` writes `questions.jsonl` (30 cases in the mix above, plus the 14 hard cases below) by running the tools against the current DB, and refuses to write a case whose premise no longer holds, for example an "infeasible" lineup that now fits. `evals/grade.py` holds deterministic graders, with no LLM judge. `evals/run_evals.py` writes a JSON and a Markdown report per run, and each case's trace is tagged `eval-{stamp}-{id}`.
+- **How each type is graded.**
+  - Names are matched ignoring accents and case.
+  - Numbers must all appear within tolerance (`$196K` counts).
+  - `drivers` passes if each feature is named, or described in one sentence by its family and window ("putting over the last 16 starts").
+  - `lineup_valid` runs `validate_proposal` against what the *user* asked for, so a lineup the agent built without the requested lock fails.
+  - `clarify`, `refusal_or_clarify` and `unavailable` check the tool trace (ambiguous result, no player data used, the expected error code), plus keyword cues in the answer.
+- **Explanation cases** use only the TOUR Championship and The Open, the live weeks whose saved models still reproduce their scores. Explaining a base week (guard-04) is the missing-data case.
+- **First run: Haiku 5.5 passed 30/30** (`evals/results/20261028-210912_claude-haiku-5-5.md`) at $0.0013 a question, with 2.6 model calls and 4.1s on average.
+  - Accuracy has no headroom: the set works as a regression suite, but it can't show improvement yet.
+  - The one metric with headroom is unsupported numbers, at 7% of answers: a sum the model worked out itself ("$898,000 over") and a threshold it picked ("outside the top 20").
+- **14 hard cases added (44 total), tagged `hard`, with their own line in the report:**
+  - 3 multi-turn (`follow_ups`, plus `expected_first` to require the "which Kim?" question before the answer);
+  - 2 wrong premises ("Why is Scheffler #1?", "Why did Tom Kim win the Wyndham?");
+  - 2 rounds-vs-starts wording traps;
+  - 1 counterintuitive explanation (better putting that counts against Scheffler), which must admit the tools don't say why;
+  - 2 no-arithmetic answers;
+  - 1 out-of-scope question (prize money);
+  - 3 filter or compare questions no single tool answers.
+  - New check types support them: `text` (required words, forbidden patterns), `no_unsupported`, and `all` for combinations.
+  - Haiku 5.5 now scores **42/44 (95%), hard 12/14** (`evals/results/20261028-214131_claude-haiku-5-5.md`). Both failures are genuine. In hard-10 it summed the drivers ("−0.73"). In hard-09 it subtracted two ranking scores ("about 0.34") instead of reporting `explain_prediction`'s exact gap.
+  - **Single runs are noisy:** expl-02 flipped between two identical runs. Compare changes over repeated runs, or at least count the flips, before calling one an improvement.
+- **Lessons from the first hard run:**
+  - A failure can be the grader: "strokes-gained over the last 24 starts" means the total. Plain "strokes gained" with no other family named now counts as total.
+  - A failure can also be the case: "both Kims" made the agent ask which ones, which our own prompt tells it to do. The question now says "both Kims in this week's field".
+  - Read the failing answers before changing the agent.
+- **Checker fixes the eval turned up.** It now reads comma-formatted numbers inside tool messages, which previously made "$1,898,000" look unsupported. It also treats K/M as multipliers only after `$`, which previously read "3M Open" as 3 million.
+
 ---
 
 ## 10. Milestones
@@ -207,17 +249,17 @@ That changelog is your interview story and your README "results" section.
 ### Weekend 1: working agent
 - [x] Step 0 inventory + minimal refactor so each piece is callable as a function
 - [x] `db.py` with consolidated tables + backfilled `predictions` (SQLite; adds an `events` table; predictions = 2018–22 out-of-fold + 7 live 2026 weeks)
-- [ ] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
-- [ ] Hand-written agent loop with trace logging
-- [ ] CLI answering lookup + explanation questions end to end
-- [ ] Unit tests for each tool (pytest)
+- [x] Tools 1–4 (`resolve_player`, `get_rankings`, `get_player_features`, `explain_prediction`) with schemas
+- [x] Hand-written agent loop with trace logging
+- [x] CLI answering lookup + explanation questions end to end (`agent/cli.py`: a multi-turn conversation, so a clarifying question gets answered in context, plus a one-shot mode; `run()` takes `history`)
+- [x] Unit tests for each tool (pytest): `tests/test_tools.py`, plus the loop in `tests/test_agent.py` and the CLI in `tests/test_cli.py`.
 
 ### Weekend 2: make it trustworthy
-- [ ] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
-- [ ] Lineup approval flow in CLI
-- [ ] Guardrails: name resolution, numeric-claim checker, constraint validator
-- [ ] Eval set (~30) + expected-answer generator + `run_evals.py`
-- [ ] Baseline eval → 2–3 improvement iterations → changelog
+- [x] Tools 5–7 (`value_report`, `propose_lineups`, `model_performance`)
+- [x] Lineup approval flow in CLI
+- [x] Guardrails: name resolution, numeric-claim checker, constraint validator
+- [x] Eval set (~30) + expected-answer generator + `run_evals.py`
+- [ ] Baseline eval → 2–3 improvement iterations → changelog. *Baseline done* (`evals/CHANGELOG.md`): Haiku 42/44 and Opus 43/44 after the measurement fixes; iterations not started. `run_evals --rescore` re-grades a saved run from its traces at no API cost, so grader changes are measured on the same answers.
 - [ ] README: architecture diagram, how to run, eval results, lessons learned
 
 ### Stretch (only if time)

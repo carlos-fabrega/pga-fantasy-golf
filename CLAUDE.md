@@ -49,10 +49,29 @@ Analyst-agent database (see `PGA_AGENT_PLAN.md`) — rebuild after each new week
 python -m agent.db --fetch   # cache scored events' leaderboards + schedule (network), then build
 python -m agent.db           # rebuild data/processed/agent.sqlite from local files only
 ```
+Ask the agent a question (needs `ANTHROPIC_API_KEY`; every run is logged to `traces/YYYY-MM-DD.jsonl`):
+```bash
+python -m agent.cli                                    # conversation: /new starts over, /quit exits
+python -m agent.cli "Why is Scheffler ranked below Si Woo Kim this week?"   # one question
+python -m agent.cli --model claude-haiku-5-5           # cheaper model for smoke tests
+```
+Lineups the agent proposes are only saved if you answer `y` at the CLI's approval prompt, as
+`lineups_approved_{proposal_id}.csv` in that week's `data/processed/{tid}_{slug}/` folder. The agent
+has no save tool; keep it that way.
+
+Agent evals (`evals/`, see `PGA_AGENT_PLAN.md` §9). Regenerate the cases after rebuilding the agent DB,
+since expected answers come from the current data. A run calls the API once per case, so it costs money:
+```bash
+python -m evals.generate                                  # evals/questions.jsonl from agent.sqlite
+python -m evals.run_evals --model claude-haiku-5-5        # all 44 cases → evals/results/{stamp}_{model}.md/.json
+python -m evals.run_evals --ids expl-01,lu-02             # or --category lineup
+python -m evals.run_evals --rescore evals/results/<run>.json   # re-grade a saved run from its traces (no API)
+```
+
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
-`python -m pytest tests/` covers the agent DB only. For the model, verify changes by re-running
+`python -m pytest tests/` covers the agent DB, tools, loop, CLI, guardrails and eval graders only (no API calls: the loop tests use a fake client). For the model, verify changes by re-running
 `python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
@@ -61,7 +80,11 @@ by running predict → optimizer end-to-end against a known tournament ID and ey
 ```
 src/                 # one module per pipeline stage (see below)
   paths.py           # SINGLE source of truth for all filesystem paths
-agent/               # analyst agent; db.py builds the read-only SQLite DB
+agent/               # analyst agent; db.py builds the read-only SQLite DB, tools.py the agent's tools,
+                     # prompts.py the system prompt, agent.py the loop, cli.py the CLI,
+                     # guardrails.py the numeric-claim checker + lineup validator
+evals/               # generate.py builds questions.jsonl, grade.py the graders, run_evals.py the runner;
+                     # results/ holds one report per run
 models/              # trained pickles: model_base.pkl, model_links.pkl (gitignored)
 data/
   raw/
@@ -72,7 +95,8 @@ data/
     feature_matrix.parquet
     agent.sqlite, player_crosswalk_review.csv
     {tournament_id}_{slug}/   # per-week artifacts, all together:
-        weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv
+        weekly_features.parquet, projections.csv, lineups*.csv, salaries.csv,
+        lineups_approved_*.csv (agent CLI)
 ```
 
 Each week's inputs and outputs — salaries, features, projections, lineups — live together under
