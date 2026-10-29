@@ -111,6 +111,9 @@ def test_refusal_and_unavailable():
     assert grade(case, "That explanation isn't available: the model was retrained.", changed, None)[0]
     assert not grade(case, "He leads on approach play.", changed, None)[0]
     assert not grade(case, "That isn't available.", [], None)[0]
+    notfound = [_call("get_rankings", {"error": "event_not_found"})]
+    assert grade(_case("unavailable", error="event_not_found"),
+                 "The model has no 2026 Masters rankings; the search returned no matching event.", notfound, None)[0]
 
 
 def test_infeasible():
@@ -271,3 +274,19 @@ def test_multi_turn_case_carries_history_and_checks_the_first_reply(monkeypatch)
     first_answer[0] = "Si Woo Kim is 1st."           # answered without asking
     row = run_evals.run_case(case, None, None, "claude-haiku-5-5", "s")
     assert not row["passed"] and row["reason"].startswith("turn 1:")
+
+
+def test_compare_averages_runs_and_lists_changed_cases():
+    from evals.compare import compare
+
+    def run(stamp, passed, acc, hard, unsupported):
+        return {"stamp": stamp, "model": "claude-haiku-5-5",
+                "summary": {"accuracy": acc, "hard": {"accuracy": hard}, "unsupported_number_rate": unsupported,
+                            "avg_iterations": 2.0, "avg_latency_s": 4.0, "avg_cost_usd": 0.0014},
+                "cases": [{"id": cid, "passed": ok} for cid, ok in passed.items()]}
+    before = [run("b1", {"a": True, "b": False}, 0.5, 0.0, 0.5), run("b2", {"a": True, "b": True}, 1.0, 1.0, 0.0)]
+    after = [run("a1", {"a": True, "b": True}, 1.0, 1.0, 0.0)]
+    out = compare(before, after)
+    assert "| Accuracy | 75.0% | 100.0% |" in out and "| Hard cases | 50.0% | 100.0% |" in out
+    assert "- b: 1/2 → 1/1" in out and "- a:" not in out
+    assert "before `b1`, `b2`; after `a1`" in out
