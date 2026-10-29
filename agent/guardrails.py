@@ -32,7 +32,8 @@ _NUMBER = re.compile(
     r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
     r"(?P<suf>[KkMm](?![A-Za-z]))?(?P<pct>%)?(?:st|nd|rd|th)?(?!\w)")
 _LIST_MARKER = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)   # "1. " starting a list item
-_SOURCE_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+# Tool messages write money with thousands commas ("$1,898,000"); JSON lists use ", ".
+_SOURCE_NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 
 
 def _claims(answer: str) -> Iterator[Tuple[str, float, float, bool]]:
@@ -40,7 +41,8 @@ def _claims(answer: str) -> Iterator[Tuple[str, float, float, bool]]:
     for m in _NUMBER.finditer(_LIST_MARKER.sub(" ", answer)):
         num = m["num"].replace(",", "")
         decimals = len(num.split(".")[1]) if "." in num else 0
-        mult = {"k": 1e3, "m": 1e6}.get((m["suf"] or "").lower(), 1.0)
+        # K/M only scale money: "$1.65M" is 1,650,000, but "3M Open" is a tournament.
+        mult = {"k": 1e3, "m": 1e6}.get((m["suf"] or "").lower(), 1.0) if m["cur"] else 1.0
         yield m.group(0), float(num) * mult, 0.5 * 10 ** -decimals * mult, bool(m["pct"])
 
 
@@ -69,7 +71,7 @@ def check_numbers(answer: str, messages: List[dict]) -> List[str]:
     ("2.5%" from 0.025). Derived numbers (sums, differences the model worked
     out itself) are flagged too: the rule is that every number comes from a tool.
     """
-    known = [float(x) for text in _sources(messages) for x in _SOURCE_NUMBER.findall(text)]
+    known = [float(x.replace(",", "")) for text in _sources(messages) for x in _SOURCE_NUMBER.findall(text)]
     unsupported: List[str] = []
     for raw, value, tol, pct in _claims(answer):
         ok = any(abs(value - s) <= tol + 1e-9 for s in known) or (

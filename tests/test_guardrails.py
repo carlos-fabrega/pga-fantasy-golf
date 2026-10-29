@@ -57,6 +57,19 @@ def test_unsupported_numbers_are_flagged_once_each():
     assert check_numbers(answer, _conversation("Why?", TOOL_OUTPUT)) == ["−0.73", "0.28", "7"]
 
 
+def test_numbers_inside_tool_messages_count():
+    err = {"error": "infeasible", "detail": "The locked players cost $1,898,000, over the $1,000,000 budget."}
+    convo = _conversation("Lock them", err)
+    assert check_numbers("They cost $1,898,000 against a $1,000,000 cap.", convo) == []
+    assert check_numbers("That's $898,000 over.", convo) == ["$898,000"]          # derived
+    assert check_numbers("Ranks 1, 2 and 3.", _conversation("q", {"ranks": [1, 2, 3]})) == []
+
+
+def test_a_bare_m_suffix_is_not_millions():
+    convo = _conversation("q", {"events": ["3M Open 2026"]})
+    assert check_numbers("Salaries exist for the 3M Open.", convo) == []
+
+
 def test_the_models_own_earlier_text_is_not_a_source():
     assert check_numbers("As I said, 9.99.", _conversation("Why?", TOOL_OUTPUT)) == ["9.99"]
 
