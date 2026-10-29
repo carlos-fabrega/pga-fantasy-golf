@@ -1,0 +1,1249 @@
+{
+ "stamp": "20261028-231212",
+ "model": "claude-haiku-5-5",
+ "questions": "questions.jsonl",
+ "case_ids": [
+  "rank-01",
+  "rank-02",
+  "rank-03",
+  "rank-04",
+  "feat-01",
+  "feat-02",
+  "sal-01",
+  "perf-01",
+  "expl-01",
+  "expl-02",
+  "expl-03",
+  "expl-04",
+  "expl-05",
+  "expl-06",
+  "val-01",
+  "val-02",
+  "val-03",
+  "val-04",
+  "lu-01",
+  "lu-02",
+  "lu-03",
+  "lu-04",
+  "lu-05",
+  "lu-06",
+  "guard-01",
+  "guard-02",
+  "guard-03",
+  "guard-04",
+  "guard-05",
+  "guard-06",
+  "hard-01",
+  "hard-02",
+  "hard-03",
+  "hard-04",
+  "hard-05",
+  "hard-06",
+  "hard-07",
+  "hard-08",
+  "hard-09",
+  "hard-10",
+  "hard-11",
+  "hard-12",
+  "hard-13",
+  "hard-14"
+ ],
+ "summary": {
+  "cases": 44,
+  "passed": 43,
+  "api_errors": 0,
+  "accuracy": 0.9772727272727273,
+  "by_category": {
+   "lookup": {
+    "cases": 11,
+    "accuracy": 1.0
+   },
+   "explanation": {
+    "cases": 10,
+    "accuracy": 1.0
+   },
+   "value": {
+    "cases": 5,
+    "accuracy": 1.0
+   },
+   "lineup": {
+    "cases": 8,
+    "accuracy": 0.875
+   },
+   "guardrail": {
+    "cases": 10,
+    "accuracy": 1.0
+   }
+  },
+  "hard": {
+   "cases": 14,
+   "accuracy": 0.9285714285714286
+  },
+  "tool_call_correctness": 0.9772727272727273,
+  "unsupported_number_rate": 0.022727272727272728,
+  "avg_iterations": 2.75,
+  "avg_latency_s": 4.331818181818182,
+  "avg_cost_usd": 0.0013991363636363643,
+  "total_cost_usd": 0.061562000000000026
+ },
+ "cases": [
+  {
+   "id": "rank-01",
+   "category": "lookup",
+   "type": "exact",
+   "hard": false,
+   "question": "Who is ranked #1 this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 1.8,
+   "input_tokens": 6909,
+   "output_tokens": 120,
+   "cost_usd": 0.0007509000000000001,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "39dac763015b"
+   ],
+   "answer": "Si Woo Kim is ranked #1 this week at the TOUR Championship (East Lake Golf Club), with a model score of 0.9768. Scores are relative rankings within this event, not probabilities."
+  },
+  {
+   "id": "rank-02",
+   "category": "lookup",
+   "type": "exact",
+   "hard": false,
+   "question": "Who did the model rank first at the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 1.6,
+   "input_tokens": 7049,
+   "output_tokens": 197,
+   "cost_usd": 0.0008034000000000001,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "76c3bee21ca2"
+   ],
+   "answer": "The model ranked Cameron Young first at the 2026 Wyndham Championship (Sedgefield Country Club), with a score of 1.3004. Tom Kim was second (0.9046) and Jackson Koivun third (0.8818). Scores are relative rankings within this event, not probabilities."
+  },
+  {
+   "id": "rank-03",
+   "category": "lookup",
+   "type": "exact",
+   "hard": false,
+   "question": "Who did the model rank first at the 2019 U.S. Open?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 1.5,
+   "input_tokens": 7061,
+   "output_tokens": 195,
+   "cost_usd": 0.0008036,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "7c1f859c2874"
+   ],
+   "answer": "At the 2019 U.S. Open (Pebble Beach), the model ranked Tiger Woods first, with a score of 1.6463. Justin Thomas was second (1.2847) and Patrick Reed third (1.1357). These scores are relative rankings within this event, not probabilities."
+  },
+  {
+   "id": "rank-04",
+   "category": "lookup",
+   "type": "number",
+   "hard": false,
+   "question": "Where is Scottie Scheffler ranked this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 2.0,
+   "input_tokens": 8248,
+   "output_tokens": 286,
+   "cost_usd": 0.0009678000000000001,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "31c1dc983d18"
+   ],
+   "answer": "Scottie Scheffler is ranked **5th of 30** this week at the TOUR Championship (East Lake Golf Club), with a score of 0.6374 under the nocut model. The score is a relative ranking value within this event, not a probability."
+  },
+  {
+   "id": "feat-01",
+   "category": "lookup",
+   "type": "number",
+   "hard": false,
+   "question": "What is Scottie Scheffler's strokes gained total per round over the last 16 starts, going into this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_player_features"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 2.6,
+   "input_tokens": 10958,
+   "output_tokens": 255,
+   "cost_usd": 0.0012232999999999999,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "323fa32be444"
+   ],
+   "answer": "Scottie Scheffler's strokes gained total per round over his last 16 starts is **2.604**, going into this week's TOUR Championship at East Lake."
+  },
+  {
+   "id": "feat-02",
+   "category": "lookup",
+   "type": "number",
+   "hard": false,
+   "question": "What was Cameron Young's putting strokes gained per round over the last 8 starts, going into the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_player_features"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 2.8,
+   "input_tokens": 11136,
+   "output_tokens": 356,
+   "cost_usd": 0.0012916000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "db5d1f8af50e"
+   ],
+   "answer": "Cameron Young's putting strokes gained per round over his last 8 starts going into the 2026 Wyndham Championship was **-0.252** (Sedgefield Country Club, event R2026013)."
+  },
+  {
+   "id": "sal-01",
+   "category": "lookup",
+   "type": "number",
+   "hard": false,
+   "question": "What is Tom Kim's Buzz salary this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "value_report"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 2.7,
+   "input_tokens": 12494,
+   "output_tokens": 208,
+   "cost_usd": 0.0013534,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "03c64b373658"
+   ],
+   "answer": "Tom Kim's Buzz salary this week is **$196,000** for the TOUR Championship at East Lake."
+  },
+  {
+   "id": "perf-01",
+   "category": "lookup",
+   "type": "number",
+   "hard": false,
+   "question": "What was the model's Spearman rank correlation at the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "model_performance"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.3,
+   "input_tokens": 6927,
+   "output_tokens": 162,
+   "cost_usd": 0.0007737,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "e5a51023797e"
+   ],
+   "answer": "The model's Spearman rank correlation at the 2026 Wyndham Championship was 0.298. That is positive but modest. Only 1 of the model's top 10 finished in the top 10, and the winner, Michael Brennan, was ranked 93rd by the model."
+  },
+  {
+   "id": "expl-01",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "Why is Scheffler ranked below Si Woo Kim this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 7.7,
+   "input_tokens": 11789,
+   "output_tokens": 1233,
+   "cost_usd": 0.0017954000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "055454799a3d"
+   ],
+   "answer": "Scheffler is 5th and Si Woo Kim is 1st this week at the TOUR Championship (nocut model). Kim's score is 0.9768 and Scheffler's is 0.6374, a score_gap of -0.3394.\n\n**Where Scheffler gains on Kim:**\n- **Playoff history** (2.345 vs. 0.72): +0.194\n- **24-round strokes gained total** (2.604 vs. 1.164): +0.1509\n\n**Where Kim gains on Scheffler:**\n- **Putting, last 16 rounds** (0.659 vs. -0.026): -0.1454 for Scheffler\n- **Approach, last 8 rounds** (0.992 vs. 0.577): -0.1373 for Scheffler\n- **Off-the-tee, last 8 rounds** (0.624 vs. 0.367): -0.1194 for Scheffler\n\nScheffler's putting is the main drag. His 8- and 24-round putting figures are also below Kim's, and the 24-round putting gap adds another -0.0969. Kim's stronger recent approach and driving outweigh Scheffler's better playoff record and longer-term total strokes gained."
+  },
+  {
+   "id": "expl-02",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "Why does the model rank Patrick Cantlay above Matt Fitzpatrick this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 7.2,
+   "input_tokens": 11810,
+   "output_tokens": 1399,
+   "cost_usd": 0.0018805,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "cfd1fae618f5"
+   ],
+   "answer": "This week is the TOUR Championship at East Lake, scored with the nocut model. Cantlay ranks 2nd (score 0.9233) and Fitzpatrick 3rd (0.7345), a score gap of 0.1888. Scores are relative ranking outputs, not probabilities.\n\n**Where Cantlay gains:**\n- **Playoff history (`playoff_sg_hist`):** 1.72 for Cantlay vs. 0.345 for Fitzpatrick. This is the biggest gap, worth 0.3634 in Cantlay's favor.\n- **Around-the-green SG, last 16 starts (`sg_arg_per_round_roll16`):** Fitzpatrick's value is higher (0.582 vs. 0.266), yet the feature still contributes 0.3185 in Cantlay's favor. I can't explain that direction from the output alone.\n- **Off-the-tee SG, last 24 starts (`sg_ott_per_round_roll24`):** 0.334 for Cantlay vs. -0.043 for Fitzpatrick, worth 0.1296 to Cantlay.\n\n**Where Fitzpatrick gains:**\n- **Putting SG, last 8 starts (`sg_putt_per_round_roll8`):** Cantlay is at -0.076 vs. Fitzpatrick's 0.334, costing Cantlay 0.1928.\n- **Total SG, last 24 starts:** Cantlay's `sg_t2g_per_round_roll24` is 1.459 vs. 1.163 for Fitzpatrick, but the tee-to-green gap is worth -0.1116 for Cantlay. Putting over 24 starts (0.042 vs. 0.257) costs him another 0.1086.\n\nThe output doesn't give Cantlay's overall total SG per round in the same place, but his strongest single contributor on his own profile is `playoff_sg_hist` (+0.4768), followed by `sg_total_per_round_roll24` (+0.3158)."
+  },
+  {
+   "id": "expl-03",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "Why is Si Woo Kim the model's top pick this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 7.9,
+   "input_tokens": 12307,
+   "output_tokens": 824,
+   "cost_usd": 0.0016427,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "6dd556364c01"
+   ],
+   "answer": "Si Woo Kim is the model's top pick at this week's TOUR Championship (East Lake), with a score of 0.9768. The model ranks him first and Patrick Cantlay second at 0.9233, a score gap of 0.0535.\n\nThe main drivers of his score:\n\n- **Strokes gained total, last 16 starts (1.164 per round):** +0.2382, the largest contribution.\n- **Course starts:** no data (null), yet it still adds +0.1494. The model scores missing data too, so this reflects how the model treats a missing value rather than any course history.\n- **Strokes gained approach, last 8 starts (0.577 per round):** +0.1264.\n\nThe main drag is **playoff starts (2.0):** \u22120.1422.\n\nAgainst Cantlay, the gap comes mostly from playoff history (his playoff_sg_hist is 0.72 vs. Cantlay's 1.72, contributing \u22120.3988 in Kim's favour's opposite direction) and recent form. Kim's putting over the last 8 starts (0.178 per round vs. Cantlay's \u22120.076) adds +0.1906 for him.\n\nThis uses the no-cut model version."
+  },
+  {
+   "id": "expl-04",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "What's driving Tom Kim's score this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 4.4,
+   "input_tokens": 10791,
+   "output_tokens": 645,
+   "cost_usd": 0.0014016000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "fee5a58a4114"
+   ],
+   "answer": "Tom Kim ranks **4th** this week at the TOUR Championship (East Lake) with a score of 0.6973. The score is a relative ranking output, not a probability.\n\n**Top drivers:**\n1. **Strokes gained total, 24-start rolling average:** 1.402 per round, contributing +0.2308.\n2. **Strokes gained total, 16-start rolling average:** 1.402 per round, contributing +0.225.\n3. **Course starts:** no data (missing), yet it still contributes +0.1865. The model scores missing data too, so this reflects how the model treats a player with no history here, not a record at East Lake.\n\n**Other positives:** strokes gained tee-to-green over 16 starts (1.192, +0.1171), playoff strokes gained history (0.345, +0.1046), and putting over 8 starts (0.436, +0.0916).\n\n**Negatives:** strokes gained total over the last 8 starts (1.745, \u22120.10) and playoff starts (2.0, \u22120.0771)."
+  },
+  {
+   "id": "expl-05",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "Why was Joaquin Niemann ranked #1 at the 2026 Open Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.6,
+   "input_tokens": 12557,
+   "output_tokens": 981,
+   "cost_usd": 0.0017462,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "c13153c81b97"
+   ],
+   "answer": "Joaquin Niemann is ranked #1 at The Open Championship (Royal Birkdale) on the links model, with a score of 1.4331. Bryson DeChambeau is #2 at 1.2958.\n\n**Top drivers for Niemann:**\n- **Strokes gained total, last 24 starts (1.702 per round):** contributed +0.477.\n- **Strokes gained tee-to-green, last 24 starts (1.554 per round):** contributed +0.4369.\n- **Course starts:** no data for Royal Birkdale, but the model still added +0.1964.\n\nOther positives were strokes gained total over the last 8 starts (+0.1712) and made-cut rate over the last 24 starts (0.917, +0.1516). Putting over the last 8 starts (0.178 per round) was a drag at -0.1194.\n\n**Versus DeChambeau:** Niemann's lead of 0.1373 comes mainly from:\n- Strokes gained around the green over the last 16 starts: Niemann 0.08 vs DeChambeau 0.598, a -0.3874 gap in DeChambeau's favour.\n- Tee-to-green over the last 8 starts: Niemann 1.554 vs DeChambeau 2.592, where DeChambeau's edge is worth about -0.3704 to Niemann.\n\nNiemann's advantage on tee-to-green over the last 24 starts and his consistency in the putting figures offset those gaps."
+  },
+  {
+   "id": "expl-06",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": false,
+   "question": "Why did the model rank Joaquin Niemann above Tommy Fleetwood at the 2026 Open Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 6.9,
+   "input_tokens": 11968,
+   "output_tokens": 1303,
+   "cost_usd": 0.0018483,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "dbb31e3af8f9"
+   ],
+   "answer": "The model ranked Niemann first (score 1.4331) and Fleetwood third (1.1315), a score_gap of 0.3016 under the links model for Royal Birkdale.\n\nMain drivers of the gap:\n\n1. **Strokes gained tee-to-green, last 24 rounds:** Niemann 1.554 vs. Fleetwood 1.43, contributing a gap of 0.2356 in Niemann's favor.\n2. **Strokes gained around-the-green, last 16 rounds:** Niemann 0.08 vs. Fleetwood 0.447, with a contribution gap of 0.216. The 8- and 24-round versions show similar gaps (0.2044 and -0.141).\n3. **Strokes gained putting, last 8 rounds:** Niemann 0.178 vs. Fleetwood 0.396, with a contribution gap of -0.1136, which works against Niemann.\n\nFleetwood also had the edge on approach over the last 16 rounds (0.482 vs. Niemann's 1.067), which narrowed the gap. The around-the-green contribution is counterintuitive, since Niemann's raw value is lower. The tool's sign convention on these gap figures isn't fully clear to me, so I'd treat that line as the model's result rather than a plain read of the stats."
+  },
+  {
+   "id": "val-01",
+   "category": "value",
+   "type": "topset",
+   "hard": false,
+   "question": "Who are the best value plays this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "value_report"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.2,
+   "input_tokens": 7488,
+   "output_tokens": 505,
+   "cost_usd": 0.0010013,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "fc03ab3c231b"
+   ],
+   "answer": "This week is the TOUR Championship at East Lake. The model's top value plays, ranked by the value score (salary rank minus model rank), are:\n\n1. **Alex Smalley**: value +17. Salary $131,000, model rank 6.\n2. **J.J. Spaun**: value +15. Salary $147,000, model rank 7.\n3. **Tom Kim**: value +14. Salary $196,000, model rank 4.\n4. **Alex Fitzpatrick**: value +14. Salary $83,000, model rank 13.\n\nNext are Gary Woodland (+6, $78,000, model rank 22) and Kristoffer Reitan (+5, $117,000, model rank 21).\n\nSmalley and Spaun give the most value per dollar among the top-ranked players. Tom Kim is the strongest-ranked of the four, at 4th overall. Alex Fitzpatrick is the cheapest of the group at $83,000, but he ranks 13th, so he's a lower-ceiling option."
+  },
+  {
+   "id": "val-02",
+   "category": "value",
+   "type": "topset",
+   "hard": false,
+   "question": "Who were the top 5 value plays at the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "value_report"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 2.2,
+   "input_tokens": 7250,
+   "output_tokens": 347,
+   "cost_usd": 0.0008985,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "a1832abb3657"
+   ],
+   "answer": "The top 5 value plays at the 2026 Wyndham Championship (Sedgefield Country Co\u200buntry Club, per the event data) are:\n\n1. **Davis Chatfield**: salary $48,000, model rank 9, value +103\n2. **Webb Simpson**: salary $45,000, model rank 25, value +91\n3. **Luke List**: salary $25,000, model rank 49, value +89\n4. **C.T. Pan**: salary $31,000, model rank 48, value +86\n5. **Brandt Snedeker**: salary $51,000, model rank 26, value +83\n\nValue is salary rank minus model rank, so a higher number means the model rates the player further above their price. Among the 144 priced players, Chatfield has the strongest model rating of this group."
+  },
+  {
+   "id": "val-03",
+   "category": "value",
+   "type": "exact",
+   "hard": false,
+   "question": "Who was the single best value play at the 2026 Rocket Classic?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings",
+    "value_report"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.3,
+   "input_tokens": 8189,
+   "output_tokens": 533,
+   "cost_usd": 0.0010854,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "793ef160a8f0"
+   ],
+   "answer": "**Brandt Snedeker** was the top value play at the 2026 Rocket Classic. He had a salary of $36,000 (salary rank 121) and a model rank of 17, giving a value score of 104, the highest in the report.\n\nThe next closest were Davis Chatfield (value 102; $44,000, model rank 6) and Webb Simpson (value 88; $39,000, model rank 27)."
+  },
+  {
+   "id": "val-04",
+   "category": "value",
+   "type": "number",
+   "hard": false,
+   "question": "How does Alex Smalley's model rank compare with the salary rank this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "value_report",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 3.2,
+   "input_tokens": 13857,
+   "output_tokens": 384,
+   "cost_usd": 0.0015777,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "1ff7082b532e"
+   ],
+   "answer": "Alex Smalley is ranked **6th** by the model for this week's TOUR Championship (East Lake), but his salary ranks **23rd** of the 30 priced players ($131,000).\n\nThat gives a value figure of **+17**, the largest in the priced field. The model rates him well above his price. His model score is 0.5033, the nocut model's ranking score, which is only meaningful relative to other players in this event."
+  },
+  {
+   "id": "lu-01",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": false,
+   "question": "Build me a lineup for this week.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.3,
+   "input_tokens": 7306,
+   "output_tokens": 590,
+   "cost_usd": 0.0010256,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "f3075a788b1a"
+   ],
+   "answer": "Here's a proposed lineup for the **TOUR Championship** (East Lake Golf Club, 2026). It is a proposal only and is not saved or submitted until you approve it.\n\n| Player | Salary | Model rank | Score |\n|---|---|---|---|\n| Si Woo Kim | $349,000 | 1 | 0.9768 |\n| Patrick Cantlay | $408,000 | 2 | 0.9233 |\n| Matt Fitzpatrick | $373,000 | 3 | 0.7345 |\n| Tom Kim | $196,000 | 4 | 0.6973 |\n| Alex Smalley | $131,000 | 6 | 0.5033 |\n| J.J. Spaun | $147,000 | 7 | 0.4882 |\n\n- **Total salary:** $1,604,000 of the $1,650,000 cap ($46,000 left)\n- **Total score:** 4.3234\n\nScores are relative ranking outputs from the model for this event, not probabilities or prize estimates.\n\nDo you want me to change anything, such as locking or excluding specific players, or generate alternative lineups?"
+  },
+  {
+   "id": "lu-02",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": false,
+   "question": "Build 2 lineups for this week with Scottie Scheffler locked.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.6,
+   "input_tokens": 11354,
+   "output_tokens": 809,
+   "cost_usd": 0.0015399,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "943382dcc070"
+   ],
+   "answer": "I built two lineups for the TOUR Championship at East Lake (salary cap $1,650,000, Scheffler locked). These are proposals and are not saved or submitted until you approve one.\n\n**Lineup 1** (total salary $1,626,000, total score 2.9556)\n- Scottie Scheffler: $750,000, model rank 5, score 0.6374\n- Si Woo Kim: $349,000, model rank 1, score 0.9768\n- Tom Kim: $196,000, model rank 4, score 0.6973\n- Alex Smalley: $131,000, model rank 6, score 0.5033\n- Kristoffer Reitan: $117,000, model rank 21, score -0.0512\n- Alex Fitzpatrick: $83,000, model rank 13, score 0.192\n\n**Lineup 2** (total salary $1,642,000, total score 2.9405)\n- Scottie Scheffler: $750,000, model rank 5, score 0.6374\n- Si Woo Kim: $349,000, model rank 1, score 0.9768\n- Tom Kim: $196,000, model rank 4, score 0.6973\n- J.J. Spaun: $147,000, model rank 7, score 0.4882\n- Kristoffer Reitan: $117,000, model rank 21, score -0.0512\n- Alex Fitzpatrick: $83,000, model rank 13, score 0.192\n\nThe two lineups differ only in the fourth slot: Smalley in Lineup 1, Spaun in Lineup 2. Lineup 2 leaves $8,000 of budget unused and Lineup 1 leaves $24,000.\n\nThe event uses the no-cut model. Scores are relative rankings within this event, not probabilities or prize estimates."
+  },
+  {
+   "id": "lu-03",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": false,
+   "question": "Build 3 lineups for the 2026 Wyndham Championship without Cameron Young.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.8,
+   "input_tokens": 11851,
+   "output_tokens": 1109,
+   "cost_usd": 0.0017396000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "5eb7780e911f"
+   ],
+   "answer": "Here are three proposed lineups for the 2026 Wyndham Championship (Sedgefield Country Club, Aug 6), with Cameron Young excluded. The model is the base version, and the $1,650,000 cap applies. Nothing is saved or submitted until you approve it. Proposal ID: 4b01cc90.\n\n**Lineup 1** (total salary $1,346,000; total score 5.1198)\n- Jackson Koivun: $441,000 (model rank 3)\n- Tom Kim: $298,000 (rank 2)\n- Blades Brown: $209,000 (rank 5)\n- Ben Kohles: $157,000 (rank 4)\n- Christiaan Bezuidenhout: $149,000 (rank 7)\n- Zac Blair: $92,000 (rank 6)\n\n**Lineup 2** (total salary $1,420,000; total score 5.04)\n- Jackson Koivun: $441,000 (rank 3)\n- Tom Kim: $298,000 (rank 2)\n- Keith Mitchell: $223,000 (rank 8)\n- Blades Brown: $209,000 (rank 5)\n- Ben Kohles: $157,000 (rank 4)\n- Zac Blair: $92,000 (rank 6)\n\n**Lineup 3** (total salary $1,477,000; total score 5.0108)\n- Jackson Koivun: $441,000 (rank 3)\n- Tom Kim: $298,000 (rank 2)\n- Keith Mitchell: $223,000 (rank 8)\n- Blades Brown: $209,000 (rank 5)\n- Ben Kohles: $157,000 (rank 4)\n- Christiaan Bezuidenhout: $149,000 (rank 7)\n\nLineup 1 has the highest total score and leaves the most salary unspent. All three share Koivun, Kim, Brown and Kohles. Lineups 2 and 3 swap in Keith Mitchell (rank 8) for Zac Blair or Bezuidenhout to use more of the budget."
+  },
+  {
+   "id": "lu-04",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": false,
+   "question": "Build 2 lineups for the 2026 Rocket Classic locking Si Woo Kim and Ben Kohles, and leaving out Patrick Cantlay.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "resolve_player",
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.0,
+   "input_tokens": 12187,
+   "output_tokens": 1023,
+   "cost_usd": 0.0017302,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "8c7e9a90038c"
+   ],
+   "answer": "Here are two proposed lineups for the 2026 Rocket Classic (Detroit Golf Club). Both include Si Woo Kim and Ben Kohles, and both exclude Patrick Cantlay. Neither is saved or submitted until you approve it.\n\n**Lineup 1** (total salary $1,623,000; model total score 4.96)\n- Si Woo Kim ($468,000; model rank 1)\n- Cameron Young ($650,000; model rank 4)\n- Ben Kohles ($130,000; model rank 3)\n- Akshay Bhatia ($219,000; model rank 7)\n- Zac Blair ($112,000; model rank 8)\n- Davis Chatfield ($44,000; model rank 6)\n\n**Lineup 2** (total salary $1,569,000; model total score 4.9386)\n- Si Woo Kim ($468,000; model rank 1)\n- Cameron Young ($650,000; model rank 4)\n- Ben Kohles ($130,000; model rank 3)\n- Doug Ghim ($165,000; model rank 9)\n- Zac Blair ($112,000; model rank 8)\n- Davis Chatfield ($44,000; model rank 6)\n\nThe two lineups differ only in the fifth slot: Bhatia in Lineup 1, Ghim in Lineup 2. Lineup 1 has $27,000 of budget left and Lineup 2 has $81,000 left under the $1,650,000 cap."
+  },
+  {
+   "id": "lu-05",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": false,
+   "question": "Build a lineup for this week with a $1,500,000 budget.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.3,
+   "input_tokens": 7294,
+   "output_tokens": 574,
+   "cost_usd": 0.0010164,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "ff66ef1222ba"
+   ],
+   "answer": "Here's a proposed lineup for the TOUR Championship (East Lake, Aug 27, 2026). It's not saved or submitted until you approve it.\n\n| Player | Salary | Model rank | Score |\n|---|---|---|---|\n| Si Woo Kim | $349,000 | 1 | 0.9768 |\n| Patrick Cantlay | $408,000 | 2 | 0.9233 |\n| Matt Fitzpatrick | $373,000 | 3 | 0.7345 |\n| Alex Smalley | $131,000 | 6 | 0.5033 |\n| J.J. Spaun | $147,000 | 7 | 0.4882 |\n| Alex Fitzpatrick | $83,000 | 13 | 0.1920 |\n\n- **Total salary:** $1,491,000, leaving $9,000 under the $1.5M cap\n- **Total model score:** 3.8181\n\nThe lineup is built from the model's top-ranked golfers, with the lower-salary spots filled by Smalley, Spaun and A. Fitzpatrick to fit the cap. I can explain what's driving any of these players' scores, or propose alternatives with locks or exclusions."
+  },
+  {
+   "id": "lu-06",
+   "category": "lineup",
+   "type": "infeasible",
+   "hard": false,
+   "question": "Build a lineup for this week locking Scottie Scheffler, Rory McIlroy, Xander Schauffele with a $1,000,000 budget.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "resolve_player",
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 4.8,
+   "input_tokens": 11223,
+   "output_tokens": 663,
+   "cost_usd": 0.0014537999999999999,
+   "unsupported_numbers": [
+    "$898,000"
+   ],
+   "run_ids": [
+    "80d45a5be9e8"
+   ],
+   "answer": "I couldn't build this lineup. Scheffler, McIlroy and Schauffele together cost $1,898,000, which is $898,000 over the $1,000,000 budget, so the optimizer returned no feasible lineup.\n\nOptions:\n1. Raise the budget. The locks alone need at least $1,898,000, plus room for three more players.\n2. Drop one or more of the locks, for example Schauffele, and rebuild with $1,000,000.\n\nWhich would you like?"
+  },
+  {
+   "id": "guard-01",
+   "category": "guardrail",
+   "type": "refusal_or_clarify",
+   "hard": false,
+   "question": "How will Zylo Brackenridge do this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 1.7,
+   "input_tokens": 6822,
+   "output_tokens": 132,
+   "cost_usd": 0.0007482000000000001,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "03b3e6c4ef3a"
+   ],
+   "answer": "I couldn't find a golfer named Zylo Brackenridge in the model's player database, so I can't pull a ranking or projection for them. Could you check the spelling or give me another name? If you meant a different player, I can look them up."
+  },
+  {
+   "id": "guard-02",
+   "category": "guardrail",
+   "type": "clarify",
+   "hard": false,
+   "question": "How is Smith doing this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 1.9,
+   "input_tokens": 7000,
+   "output_tokens": 188,
+   "cost_usd": 0.000794,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "7333617ed57d"
+   ],
+   "answer": "I found three golfers with the last name Smith. Which one do you mean?\n\n1. **Jordan Smith**\n2. **Cameron Smith**\n3. **Stuart Smith**"
+  },
+  {
+   "id": "guard-03",
+   "category": "guardrail",
+   "type": "clarify",
+   "hard": false,
+   "question": "Where is Kim ranked this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.9,
+   "input_tokens": 7165,
+   "output_tokens": 221,
+   "cost_usd": 0.000827,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "22c29342c97d"
+   ],
+   "answer": "There are several golfers with the last name Kim in the data. Which one do you mean?\n\n- Si Woo Kim\n- Tom Kim\n- Michael Kim\n- Baekjun Kim\n- Chan Kim\n- Hanbyeol Kim\n- Whee Kim"
+  },
+  {
+   "id": "guard-04",
+   "category": "guardrail",
+   "type": "unavailable",
+   "hard": false,
+   "question": "Why is Cameron Young ranked first at the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings",
+    "explain_prediction",
+    "get_player_features"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 4,
+   "latency_s": 6.9,
+   "input_tokens": 16570,
+   "output_tokens": 1177,
+   "cost_usd": 0.0022455,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "18259c07e328"
+   ],
+   "answer": "Cameron Young is ranked first at the 2026 Wyndham Championship with a score of 1.3004, ahead of Tom Kim (0.9046). I can't give you the official breakdown of why he's first, though. The explanation tool returned an error: the base model has been retrained since these projections were made, so it no longer reproduces the stored scores for this event.\n\nWhat I can show is his recent form, which is the model's input data:\n\n- **Strokes gained, total (per round):** 1.013 over his last 8 starts and 1.448 over his last 16 and 24. Both are strong.\n- **Tee-to-green (per round):** 1.266 over the last 8 starts and 1.489 over the last 16 and 24.\n- **Off the tee (per round):** 0.497 over the last 8 and 0.659 over the last 16 and 24.\n- **Approach (per round):** 0.429 over the last 8 and 0.563 over the last 16 and 24.\n- **Around the green (per round):** 0.340 over the last 8 and 0.266 over the last 16 and 24.\n- **Putting (per round):** -0.252 over the last 8 and -0.040 over the last 16 and 24. This is his weak spot.\n- **Made-cut rate:** 0.875 over the last 8 and 16 starts, and 0.833 over the last 24. He has played 10 starts in the last 8 events.\n\nHis course history at Sedgefield and his playoff history are missing from the data, so the model had no course-specific input for him.\n\nThe strong tee-to-green numbers look like the main reason for the ranking, but that's my reading of the inputs, not a verified attribution. A proper driver breakdown will need the explanation tool to work again after the model's scores are regenerated."
+  },
+  {
+   "id": "guard-05",
+   "category": "guardrail",
+   "type": "unavailable",
+   "hard": false,
+   "question": "Who were the best value plays at the 2019 U.S. Open?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "value_report"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.0,
+   "input_tokens": 7038,
+   "output_tokens": 398,
+   "cost_usd": 0.0009028,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "b894458dc841"
+   ],
+   "answer": "I can't identify value plays for the 2019 U.S. Open. The tool has no Buzz salary data for that event (event 401056556), so there's no price to compare the model's rankings against.\n\nSalaries are only available for these events: the 2026 TOUR Championship, Wyndham Championship, Rocket Classic, 3M Open, The Open Championship, Genesis Scottish Open, and John Deere Classic.\n\nI can still show the model's rankings for the 2019 U.S. Open, or check how well they matched the results, if that would help."
+  },
+  {
+   "id": "guard-06",
+   "category": "guardrail",
+   "type": "unavailable",
+   "hard": false,
+   "question": "Who does the model rank first at the 2026 Masters?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings",
+    "get_rankings",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 4,
+   "latency_s": 4.7,
+   "input_tokens": 15013,
+   "output_tokens": 674,
+   "cost_usd": 0.0018383000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "cdecd44e844b"
+   ],
+   "answer": "I can't find a 2026 Masters in the model's data. Searches for \"Masters\" and \"Masters Tournament\" with season 2026 returned no matching event.\n\nThe only Masters in the data is the 2022 edition (Augusta National, backtest scores). Its top-ranked player was Patrick Cantlay, but that is 2022, not this year. If you have the 2026 event ID, I can pull its rankings."
+  },
+  {
+   "id": "hard-01",
+   "category": "guardrail",
+   "type": "all",
+   "hard": true,
+   "question": "Where is Kim ranked this week, and what's the model score?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 4,
+   "latency_s": 3.8,
+   "input_tokens": 16721,
+   "output_tokens": 554,
+   "cost_usd": 0.0019491,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "db80e49bebce",
+    "f2c24de37af9"
+   ],
+   "answer": "[Where is Kim ranked this week, and what's the model score?]\nSeveral golfers match \"Kim,\" so I need to know which one you mean:\n\n1. Si Woo Kim\n2. Tom Kim\n3. Michael Kim\n4. Baekjun Kim\n5. Chan Kim\n6. Hanbyeol Kim\n7. Whee Kim\n\nWhich one should I look up for this week's ranking and score?\n\n[Tom]\nTom Kim is ranked **4th** of 30 at this week's TOUR Championship (East Lake), with a model score of **0.6973**. The scores are relative rankings within this event, not probabilities.\n\nThe top drivers behind his score:\n- **Strokes gained total, 24-start rolling average** (1.402 per round): contribution +0.2308\n- **Strokes gained total, 16-start rolling average** (1.402 per round): contribution +0.225\n- **Course starts** (no history at East Lake, so missing): contribution +0.1865"
+  },
+  {
+   "id": "hard-02",
+   "category": "explanation",
+   "type": "drivers",
+   "hard": true,
+   "question": "Who is ranked #1 this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "get_rankings",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 4,
+   "latency_s": 4.6,
+   "input_tokens": 14784,
+   "output_tokens": 495,
+   "cost_usd": 0.0017259,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "7eea8064cfaa",
+    "1c7eb649f46e"
+   ],
+   "answer": "[Who is ranked #1 this week?]\nThis week's event is the TOUR Championship at East Lake Golf Club. The model ranks **Si Woo Kim** #1, with a score of 0.9768. Scores are relative rankings within this event, not probabilities.\n\n[Why?]\nSi Woo Kim's score of 0.9768 is driven mainly by:\n\n1. **Strokes gained total, last 16 starts (sg_total_per_round_roll16):** 1.164 per round, contributing +0.2382.\n2. **Course starts (course_starts):** no recorded value, contributing +0.1494. The model scores missing course history positively here.\n3. **Strokes gained approach, last 8 starts (sg_app_per_round_roll8):** 0.577 per round, contributing +0.1264.\n\nThe main drag is **playoff starts (playoff_starts)**: 2.0, contributing -0.1422.\n\nOther strokes-gained features also add to the score, including strokes gained tee-to-green over the last 16 starts (1.19 per round, +0.1203). The baseline is -0.0012."
+  },
+  {
+   "id": "hard-03",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": true,
+   "question": "Build a lineup for this week.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "propose_lineups",
+    "resolve_player",
+    "resolve_player",
+    "propose_lineups"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 5,
+   "latency_s": 7.8,
+   "input_tokens": 22036,
+   "output_tokens": 1252,
+   "cost_usd": 0.0028296,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "c3ee9a9b2eaa",
+    "f3e1beb33c80"
+   ],
+   "answer": "[Build a lineup for this week.]\nHere's a proposed lineup for the TOUR Championship (East Lake Golf Club, R2026060). It's a proposal only and isn't saved or submitted until you approve it.\n\n| Player | Salary | Model rank | Score |\n|---|---|---|---|\n| Si Woo Kim | $349,000 | 1 | 0.9768 |\n| Patrick Cantlay | $408,000 | 2 | 0.9233 |\n| Matt Fitzpatrick | $373,000 | 3 | 0.7345 |\n| Tom Kim | $196,000 | 4 | 0.6973 |\n| Alex Smalley | $131,000 | 6 | 0.5033 |\n| J.J. Spaun | $147,000 | 7 | 0.4882 |\n\n- **Total salary:** $1,604,000 of the $1,650,000 cap ($46,000 left)\n- **Total model score:** 4.3234\n\nScores are relative ranking outputs within this event, not probabilities. The lineup uses the nocut model, the event's default.\n\nI can rebuild it with specific players locked in or excluded, or generate alternatives.\n\n[Now lock Tom Kim and leave out Si Woo Kim.]\nHere's the revised proposal with Tom Kim locked and Si Woo Kim excluded. It isn't saved or submitted until you approve it.\n\n| Player | Salary | Model rank | Score |\n|---|---|---|---|\n| Patrick Cantlay | $408,000 | 2 | 0.9233 |\n| Matt Fitzpatrick | $373,000 | 3 | 0.7345 |\n| Collin Morikawa | $345,000 | 9 | 0.4282 |\n| Tom Kim | $196,000 | 4 | 0.6973 |\n| Alex Smalley | $131,000 | 6 | 0.5033 |\n| J.J. Spaun | $147,000 | 7 | 0.4882 |\n\n- **Total salary:** $1,600,000 of the $1,650,000 cap ($50,000 left)\n- **Total model score:** 3.7748, down from 4.3234 in the first proposal\n\nCollin Morikawa replaces Si Woo Kim. He's the model's 9th-ranked player, so this lineup gives up the top-ranked player for salary room."
+  },
+  {
+   "id": "hard-04",
+   "category": "guardrail",
+   "type": "all",
+   "hard": true,
+   "question": "Why is Scottie Scheffler ranked #1 this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "explain_prediction",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 4,
+   "latency_s": 4.6,
+   "input_tokens": 15474,
+   "output_tokens": 743,
+   "cost_usd": 0.0019189,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "b25a13b3ba63"
+   ],
+   "answer": "Scottie Scheffler isn't ranked #1 this week. At the TOUR Championship (East Lake Golf Club, nocut model), the model has him at **#5** with a score of 0.6374. The top of the board is Si Woo Kim (0.9768), Patrick Cantlay (0.9233), Matt Fitzpatrick (0.7345), and Tom Kim (0.6973).\n\nScheffler's main drivers:\n- **Playoff history** (`playoff_sg_hist` = 2.345): +0.272\n- **Strokes gained total, last 24 starts** (`sg_total_per_round_roll24` = 2.604): +0.2557\n- **Strokes gained total, last 16 starts** (`sg_total_per_round_roll16` = 2.604): +0.2503\n- **Course starts** (no history at this course): +0.1778\n\nOffsetting these:\n- **Putting, last 16 starts** (`sg_putt_per_round_roll16` = 0.659): \u22120.1444\n- **Playoff starts** (2.0): \u22120.1398\n- **Putting, last 24 starts** (`sg_putt_per_round_roll24` = 0.659): \u22120.1203\n\nIf you were thinking of a different week or model version, let me know and I can check that instead."
+  },
+  {
+   "id": "hard-05",
+   "category": "guardrail",
+   "type": "exact",
+   "hard": true,
+   "question": "Why did Tom Kim win the 2026 Wyndham Championship?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "model_performance",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 4.6,
+   "input_tokens": 11270,
+   "output_tokens": 756,
+   "cost_usd": 0.001505,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "a9eb428c5ea8"
+   ],
+   "answer": "The data doesn't support that premise. The 2026 Wyndham Championship (event R2026013, played 2026-08-06) lists **Michael Brennan** as the winner, not Tom Kim. The model ranked Brennan 93rd of 144 players, and its top 10 included only one finisher in the actual top 10.\n\nI also can't explain why any player scored as they did in that event. The explanation tool returned a model-changed error: the saved model no longer reproduces the stored scores for that event, so an explanation would describe a different model.\n\nTom Kim does appear in the database, with a last event date of 2026-08-27, but I have no result or ranking for him at the Wyndham, so I can't say how he finished there. If you meant a different event or season, tell me and I'll check it."
+  },
+  {
+   "id": "hard-06",
+   "category": "lookup",
+   "type": "all",
+   "hard": true,
+   "question": "What is Si Woo Kim's putting strokes gained over the last 16 rounds, going into this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_player_features"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 3.5,
+   "input_tokens": 11098,
+   "output_tokens": 345,
+   "cost_usd": 0.0012822999999999999,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "7e9fff24e784"
+   ],
+   "answer": "Si Woo Kim's putting strokes gained over his last 16 tournament starts is **-0.026 per round** going into this week's TOUR Championship.\n\nThe model's feature is averaged over tournament starts, not individual rounds. His 8-start putting figure is higher at +0.178 per round."
+  },
+  {
+   "id": "hard-07",
+   "category": "explanation",
+   "type": "all",
+   "hard": true,
+   "question": "Explain Tom Kim's ranking this week in plain English.",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.7,
+   "input_tokens": 12216,
+   "output_tokens": 817,
+   "cost_usd": 0.0016301000000000002,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "f76d4daac981"
+   ],
+   "answer": "Tom Kim is ranked **4th of 30** at this week's TOUR Championship (East Lake), with a score of 0.6973. Scores are relative rankings within this event, not probabilities.\n\nThe main reasons he ranks so high:\n\n1. **Strong recent all-around play:** His strokes gained total averaged 1.402 per round over both his last 24 and last 16 starts. These added about +0.23 and +0.225 to his score.\n2. **No course history, which still helped:** The model has no prior starts for him at East Lake (the \"course starts\" value is missing). That missing input still added about +0.19. I can't tell from this output why the model treats missing course history that way.\n3. **Tee-to-green and playoff record:** His strokes gained tee-to-green over the last 16 starts (1.192) added about +0.12. His playoff history (0.345) added about +0.10.\n\nWhat pulled him down:\n- **Last 8 starts:** His strokes gained total over that window was 1.745, but it lowered his score by about 0.10. The tool doesn't explain why a strong recent window counted against him.\n- **Playoff experience:** Having 2 playoff starts reduced his score by about 0.08.\n\nOther factors not listed individually netted about -0.08."
+  },
+  {
+   "id": "hard-08",
+   "category": "explanation",
+   "type": "all",
+   "hard": true,
+   "question": "Scheffler's putting numbers are better than Si Woo Kim's, so why does putting count against Scheffler in the model?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 10.2,
+   "input_tokens": 12303,
+   "output_tokens": 1977,
+   "cost_usd": 0.0022188000000000004,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "3a2e34271145"
+   ],
+   "answer": "The model isn't penalizing Scheffler for good putting. Its putting features score him lower than Si Woo Kim, even though his putting numbers are higher. The tools don't show why the model learned that pattern.\n\n**The putting numbers (TOUR Championship, nocut model):**\n- Scheffler's `sg_putt_per_round_roll16` is 0.659 and his `roll24` is also 0.659. Both feed his score negatively: \u22120.1444 and \u22120.1203.\n- Kim's `sg_putt_per_round_roll16` is \u22120.026, and his `roll24` is also \u22120.026.\n- On putting alone, the model's gap is \u22120.1454 (roll16) and \u22120.0969 (roll24) against Scheffler.\n\n**Where the overall gap comes from:**\nKim scores 0.9768 (rank 1) and Scheffler scores 0.6374 (rank 5), a score gap of \u22120.3394 for Scheffler. The largest drivers against Scheffler are:\n- Putting, roll16: \u22120.1454\n- Approach, roll8 (`sg_app_per_round_roll8`): \u22120.1373\n- Off-the-tee, roll8 (`sg_ott_per_round_roll8`): \u22120.1194\n- Tee-to-green, roll24 (`sg_t2g_per_round_roll24`): \u22120.1166\n\nScheffler is ahead on:\n- Playoff history (`playoff_sg_hist`): +0.194\n- Total strokes gained, roll24 (`sg_total_per_round_roll24`): +0.1509\n\nScheffler's total strokes gained is far higher (roll24 of 2.604 versus 1.164 for Kim), but the model still ranks Kim higher. The model is weighting other features, and the putting pattern is the least intuitive part.\n\n**What I can't tell you:** These are SHAP attributions, which show how the model used each feature. They don't show why the trained model learned that higher putting should lower a score, whether it's an interaction with other features, or a quirk of the training data. I can't confirm whether this reflects a real effect or a modeling artifact. If you want, I can pull Kim's full explanation or check how this model performed on past events."
+  },
+  {
+   "id": "hard-09",
+   "category": "lookup",
+   "type": "all",
+   "hard": true,
+   "question": "By how much does the model's score for Si Woo Kim beat Scheffler's this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 5.4,
+   "input_tokens": 11880,
+   "output_tokens": 905,
+   "cost_usd": 0.0016405,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "366e276fa555"
+   ],
+   "answer": "Si Woo Kim's model score is **0.3394 higher** than Scottie Scheffler's at this week's event, the TOUR Championship at East Lake (scores: Kim 0.9768, Scheffler 0.6374). Kim ranks 1st and Scheffler 5th. These are relative ranking scores, not probabilities.\n\nThe biggest factors in the gap:\n- **Favoring Kim:** Scheffler's putting was weaker in the recent form windows. His sg_putt_per_round_roll16 was 0.659 against Kim's -0.026, and his roll8 was 0.710 against Kim's 0.178. Kim's approach play also led (sg_app_per_round_roll8 of 0.577 vs. Scheffler's 0.992, which favors Scheffler, so this one actually favors Scheffler). Kim's contribution from the putting gaps was 0.1454 (roll16) and 0.1119 (roll8).\n- **Favoring Scheffler:** His playoff history (playoff_sg_hist 2.345 vs. Kim's 0.72) and his 24-start total strokes gained (sg_total_per_round_roll24 2.604 vs. Kim's 1.164) both pushed the gap toward him, with contributions of -0.194 and -0.1509."
+  },
+  {
+   "id": "hard-10",
+   "category": "explanation",
+   "type": "all",
+   "hard": true,
+   "question": "What's the net effect of Scheffler's strengths and weaknesses against Si Woo Kim this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "resolve_player",
+    "explain_prediction"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 3,
+   "latency_s": 6.7,
+   "input_tokens": 11779,
+   "output_tokens": 1292,
+   "cost_usd": 0.0018239,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "06251fca14cc"
+   ],
+   "answer": "**Net effect: Scheffler scores 0.3394 lower than Si Woo Kim** (score_gap -0.3394; Scheffler 0.6374, rank 5; Kim 0.9768, rank 1). This is the TOUR Championship at East Lake, using the nocut model.\n\n**Where Scheffler gains on Kim:**\n- playoff_sg_hist: 2.345 vs 0.72 (contribution gap +0.194)\n- sg_total_per_round_roll24: 2.604 vs 1.164 (+0.1509)\n\n**Where Kim gains on Scheffler:**\n- sg_putt_per_round_roll16: 0.659 vs -0.026 (-0.1454)\n- sg_app_per_round_roll8: 0.992 vs 0.577 (-0.1373)\n- sg_ott_per_round_roll8: 0.624 vs 0.367 (-0.1194)\n- sg_t2g_per_round_roll24: 1.944 vs 1.19 (-0.1166)\n- sg_putt_per_round_roll8: 0.71 vs 0.178 (-0.1119)\n- sg_putt_per_round_roll24: 0.659 vs -0.026 (-0.0969)\n\nOther features net to +0.0433 in Scheffler's favour. The model gives Kim more credit on approach and off-the-tee form even though Scheffler's raw values there are higher. The tool doesn't explain why, so I'd check that before relying on it."
+  },
+  {
+   "id": "hard-11",
+   "category": "guardrail",
+   "type": "text",
+   "hard": true,
+   "question": "How much prize money will Scottie Scheffler win this week?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "resolve_player",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.5,
+   "input_tokens": 7697,
+   "output_tokens": 464,
+   "cost_usd": 0.0010017000000000001,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "fbd9f8b7112b"
+   ],
+   "answer": "I can't give a prize money figure. The model produces relative ranking scores within an event, not prize estimates, and no tool here returns purse or payout data.\n\nWhat the model does show for this week's event, the TOUR Championship at East Lake (field of 30, nocut model): Scottie Scheffler is ranked 5th with a score of 0.6374."
+  },
+  {
+   "id": "hard-12",
+   "category": "value",
+   "type": "exact",
+   "hard": true,
+   "question": "Who is the highest-ranked player this week with a salary under $150,000?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "value_report",
+    "get_rankings"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.7,
+   "input_tokens": 10364,
+   "output_tokens": 689,
+   "cost_usd": 0.0013809,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "aaa31d996992"
+   ],
+   "answer": "**Alex Smalley** is the highest-ranked player under $150,000 this week. He is ranked 6th of 30 by the nocut model, with a score of 0.5033 and a salary of $131,000.\n\nThis is the TOUR Championship (East Lake), using the event's default nocut model. The next-best options under $150,000 are J.J. Spaun ($147,000, ranked 7th) and Alex Fitzpatrick ($83,000, ranked 13th)."
+  },
+  {
+   "id": "hard-13",
+   "category": "lookup",
+   "type": "number",
+   "hard": true,
+   "question": "Did the model do better at the 2026 Open Championship or the 2026 Genesis Scottish Open?",
+   "passed": true,
+   "reason": "",
+   "error": false,
+   "tools_ok": true,
+   "tools": [
+    "model_performance",
+    "model_performance"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.3,
+   "input_tokens": 7200,
+   "output_tokens": 500,
+   "cost_usd": 0.00097,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "39e1d25664aa"
+   ],
+   "answer": "The model did better at the 2026 Open Championship.\n\n| | The Open Championship | Genesis Scottish Open |\n|---|---|---|\n| Spearman correlation | 0.289 | 0.081 |\n| Top-10 hits | 3 | 0 |\n| Winner's model rank | 83 (Ryan Fox) | 25 (Tom Kim) |\n| Players scored | 125 | 134 |\n\nThe Open's correlation was higher and it had three top-10 hits, while the Scottish Open had none. The Scottish Open winner was ranked higher by the model, at 25 versus 83. The Open used the links model and the Scottish Open used the base model, so the comparison also reflects those two versions."
+  },
+  {
+   "id": "hard-14",
+   "category": "lineup",
+   "type": "lineup_valid",
+   "hard": true,
+   "question": "Build 3 lineups for this week that include both Kims in this week's field.",
+   "passed": false,
+   "reason": "no successful propose_lineups call",
+   "error": false,
+   "tools_ok": false,
+   "tools": [
+    "resolve_player"
+   ],
+   "stop_reason": "end_turn",
+   "iterations": 2,
+   "latency_s": 3.4,
+   "input_tokens": 7212,
+   "output_tokens": 515,
+   "cost_usd": 0.0009787,
+   "unsupported_numbers": [],
+   "run_ids": [
+    "764c25bd5afa"
+   ],
+   "answer": "Several golfers match \"Kim,\" so I need to know which two you mean before I build anything:\n\n1. Si Woo Kim\n2. Tom Kim\n3. Michael Kim\n4. Baekjun Kim\n5. Chan Kim\n6. Hanbyeol Kim (last event 2021)\n7. Whee Kim (last event 2019)\n\nWhich two are in this week's field? If you're not sure, tell me and I can check the field rankings first. Once you confirm, I'll build three lineups with both included."
+  }
+ ]
+}
