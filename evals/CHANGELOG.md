@@ -3,6 +3,47 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-10-28: Iteration 1, "don't do arithmetic" prompt rule
+
+**Change.** One system prompt rule: "Never add, subtract or average numbers yourself; report the figure a tool
+returns. For the gap between two players, or the net effect of all their features, use explain_prediction's
+score_gap. List contributions one by one rather than totalling them."
+
+**Why.** It targets the only failure both models shared in the baseline: summing drivers for a "net effect"
+(hard-10). It also targets Haiku subtracting two ranking scores instead of reporting the exact gap (hard-09).
+`score_gap` already *is* the net effect of every feature, so the right answer was always in a tool output.
+
+**Result.** Haiku 5.5, means over 3 runs each:
+
+| Metric | Before | After |
+|---|---|---|
+| Accuracy | 95.5% | **97.7%** |
+| Hard cases | 85.7% | **92.9%** |
+| Answers with unsupported numbers | 6.8% | **0.8%** |
+| Avg model calls | 2.71 | 2.74 |
+| Avg latency | 4.4s | 4.3s |
+| Avg cost per question | $0.0014 | $0.0014 |
+
+**Cases whose pass count changed:**
+- hard-09: 0/3 → 3/3
+- hard-10: 2/3 → 3/3
+- hard-14: 1/3 → 0/3
+
+**Reading the answers:**
+- hard-10 now gives `score_gap` (−0.3394) as the net effect and lists each contribution.
+- lu-06 still explains the failure ("$1,898,000 combined, above the $1,000,000 budget") but mostly stops working out the overage itself. The one remaining flag across all 132 answers is that "$898,000", in one run.
+
+**hard-14 isn't a regression from this rule.** It already failed 2/3 before. In every failing run Haiku asks
+"which two Kims?" instead of checking the field, following the prompt's ask-when-ambiguous rule. That's a candidate for iteration 2.
+
+**Grader fix made along the way.** guard-06 failed one "after" run on wording: "has no 2026 Masters
+rankings … returned no matching event" wasn't in the unavailable-data cues. I added the cues, then re-scored *all six*
+runs with `--rescore`, so before and after use the same grader. The table above is the re-scored one; the fix
+changed only that one guard-06 answer.
+
+Runs (re-scored reports are `*_rescored`): before `20261028-225614`, `225933`, `230252`; after `230902`, `231212`,
+`231524`. Compare with `python -m evals.compare --before … --after …`.
+
 ## 2026-10-28: Measurement fixes, re-scored on the same answers
 
 No agent change. These fixes change only how answers are graded, and both baselines were re-scored from their traces

@@ -66,6 +66,7 @@ python -m evals.generate                                  # evals/questions.json
 python -m evals.run_evals --model claude-haiku-5-5        # all 44 cases → evals/results/{stamp}_{model}.md/.json
 python -m evals.run_evals --ids expl-01,lu-02             # or --category lineup
 python -m evals.run_evals --rescore evals/results/<run>.json   # re-grade a saved run from its traces (no API)
+python -m evals.compare --before <runs>.json --after <runs>.json   # mean metrics + per-case pass counts
 ```
 
 `agent/db.py` links the two player-ID spaces (training CSV vs PGA API, e.g. Scheffler 9478 vs

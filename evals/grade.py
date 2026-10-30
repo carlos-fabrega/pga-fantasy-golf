@@ -40,7 +40,8 @@ _OTHER_WORDS = {
 _UNAVAILABLE_CUES = ["not available", "unavailable", "isn't available", "aren't available", "not in the database",
                      "no salar", "can't", "cannot", "couldn't", "could not", "don't have", "doesn't have",
                      "no data", "no record", "not found", "no longer", "retrained", "changed", "no event",
-                     "isn't in", "aren't in", "not have", "doesn't include", "no results", "no explanation"]
+                     "isn't in", "aren't in", "not have", "doesn't include", "no results", "no explanation",
+                     "has no", "have no", "no matching", "returned no"]
 _PLAYER_TOOLS = {"get_player_features", "explain_prediction"}
 
 
