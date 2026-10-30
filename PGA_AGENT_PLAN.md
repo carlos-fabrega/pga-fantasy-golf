@@ -260,7 +260,7 @@ That changelog is your interview story and your README "results" section.
 - [x] Guardrails: name resolution, numeric-claim checker, constraint validator
 - [x] Eval set (~30) + expected-answer generator + `run_evals.py`
 - [ ] Baseline eval → 2–3 improvement iterations → changelog. *Baseline done* (`evals/CHANGELOG.md`): Haiku 42/44 and Opus 43/44 after the measurement fixes. Iteration 1 (a no-arithmetic prompt rule): Haiku accuracy 95.5% → 97.7%, hard cases 85.7% → 92.9%, unsupported numbers 6.8% → 0.8% (means of 3 runs). `run_evals --rescore` re-grades a saved run from its traces at no API cost, so grader changes are measured on the same answers.
-- [ ] README: architecture diagram, how to run, eval results, lessons learned
+- [x] README: architecture diagram, how to run, eval results, lessons learned
 
 ### Stretch (only if time)
 - Compare two models on the same eval set (accuracy vs. cost)
