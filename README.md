@@ -57,26 +57,24 @@ The field is 30 players, and the ranking uses the nocut model.
 ### Architecture
 
 ```mermaid
-flowchart LR
-    subgraph pipeline["ML pipeline (src/)"]
-        hist["Historical results<br/>2015–2022"] --> model["XGBRanker"]
-        api["PGA Tour API"] --> proj["Weekly projections"]
-        model --> proj
-        sal["Buzz salaries"] --> opt["PuLP optimizer"]
-    end
-    proj --> db[("agent.sqlite<br/>read-only")]
-    sal --> db
+flowchart TB
     user(["User"]) <--> cli["CLI<br/>agent/cli.py"]
     cli <--> loop["Agent loop<br/>agent/agent.py"]
-    loop <--> claude["Claude<br/>Messages API"]
+    loop <--> claude["Claude"]
+    loop --> check["Numeric-claim checker"]
     loop --> tools["7 tools<br/>agent/tools.py"]
-    tools --> db
+    tools --> db[("agent.sqlite<br/>read-only")]
+    tools --> shap["XGBoost SHAP"]
     tools --> opt
-    tools --> shap["XGBoost SHAP<br/>contributions"]
-    loop --> check["Numeric-claim<br/>checker"]
     cli --> valid["Lineup validator"]
-    valid --> approve{"Approve? y/N"}
-    approve -- y --> saved["lineups_approved_*.csv"]
+    valid --> approve{"Approve?"}
+    approve -- "y" --> saved["lineups_approved_*.csv"]
+    subgraph pipeline["ML pipeline (src/)"]
+        model["XGBRanker"] --> proj["Weekly projections"]
+        sal["Buzz salaries"] --> opt["PuLP optimizer"]
+    end
+    proj --> db
+    sal --> db
 ```
 
 - **A hand-written loop, no agent framework** (`agent/agent.py`). It calls Claude with the tool schemas, runs the tools it asks for, and sends all results back in one message. It stops at an answer, after 8 model calls, or after 3 minutes. Every model call and tool call is logged to `traces/YYYY-MM-DD.jsonl`.
