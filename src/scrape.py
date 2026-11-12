@@ -385,6 +385,11 @@ def build_weekly_features(
             "tournament_id": tournament_id,
             "tournament_name": tournament_name,
             "course": course,
+            # Training encodes "no prior starts" as 0 (a shifted expanding count),
+            # never NaN, so default to 0 here and overwrite below when history exists.
+            "course_starts": 0,
+            "links_starts": 0,
+            "playoff_starts": 0,
         }
 
         # ── SG rolling features ───────────────────────────────────────────────
@@ -405,7 +410,9 @@ def build_weekly_features(
                 if all(v is not None for v in parts):
                     row[f"sg_t2g_per_round_{label}"] = sum(parts)
 
-            row["starts_last8"] = len(history)
+            # Capped at 8 to match training, where the feature is a count over
+            # an 8-start window (history holds up to 10+ events).
+            row["starts_last8"] = min(len(history), 8)
 
         # ── Made-cut rate ─────────────────────────────────────────────────────
         if cut_history:

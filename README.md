@@ -34,7 +34,8 @@ which is the point: the earlier number was partly measuring a bias the live pipe
 reproduce. Verify with `python -m tests.test_feature_parity`.
 
 Two tournament-type model variants were built and backtested against this baseline — a links-course
-variant and a FedEx Cup Playoffs variant. The links variant is a marginal improvement; the playoff
+variant and a FedEx Cup Playoffs variant. The links variant is a no-op (its two extra features have no signal in the 2014–2022 training
+data, so it is opt-in via `--links` until backfilled data exists); the playoff
 variant **underperformed the base model** on playoff events, since ~23 historical playoff editions is
 far too thin to train an 800-tree ranker on. It's kept behind an explicit `--playoff` opt-in rather
 than auto-selected. Negative results are cheaper to keep than to rediscover.
@@ -83,7 +84,7 @@ flowchart TB
 | Tool | What it does |
 |---|---|
 | `resolve_player` | Name → player id, via exact, partial or fuzzy match. Ambiguous names come back as candidates for the agent to ask about; a fuzzy hit is never auto-picked. |
-| `get_rankings` | An event's ranked field. Picks the variant `predict` would use (links / nocut / base). |
+| `get_rankings` | An event's ranked field. Picks the variant that week was scored with (links / nocut / base). |
 | `get_player_features` | A player's model inputs for an event. |
 | `explain_prediction` | Exact per-feature SHAP contributions from XGBoost, for one player or the gap between two. Refuses (`model_changed`) if the saved model no longer reproduces the stored score. |
 | `value_report` | Players whose model rank beats their salary rank. |
