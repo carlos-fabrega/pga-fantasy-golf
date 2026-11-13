@@ -206,8 +206,8 @@ def build(con: sqlite3.Connection) -> List[Dict]:
                      event=usopen["event"]["event_id"])
     unavailable_case("guard-05", "Who were the best value plays at the 2019 U.S. Open?", ["value_report"],
                      "value_report", event="U.S. Open", season=2019)
-    unavailable_case("guard-06", "Who does the model rank first at the 2026 Masters?", ["get_rankings"],
-                     "get_rankings", event="Masters", season=2026)
+    unavailable_case("guard-06", "Who does the model rank first at the 2027 Masters?", ["get_rankings"],
+                     "get_rankings", event="Masters", season=2027)
 
     # ── Hard cases ─────────────────────────────────────────────────────────────
     # Multi-turn: the follow-up only makes sense with the first answer's context.

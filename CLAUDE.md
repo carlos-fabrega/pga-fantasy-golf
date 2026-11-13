@@ -43,8 +43,8 @@ python -m src.optimizer --csv data/processed/R2026030_john_deere_classic/salarie
 `predict` defaults to the next upcoming event (via the PGA API) and auto-selects the no-cut model
 for limited-field no-cut events (TOUR Championship, BMW, Sentry, the old WGCs) — pass
 `--tournament` or `--no-nocut`/`--nocut` to override. The links model is opt-in only (`--links`):
-`links_sg_hist`/`links_starts` carry no signal in the 2014–2022 training data, so it is the base
-model plus sampling noise until backfilled 2023+ data exists.
+re-tested on the backfilled data it gains +0.012 ρ over base on the 10 links events with
+out-of-fold scores (standard error 0.007), which is inside the noise.
 
 Analyst-agent database (see `PGA_AGENT_PLAN.md`) — rebuild after each new weekly run or retrain:
 ```bash
@@ -141,6 +141,9 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
    a risk that doesn't exist; CV shows dropping it costs nothing on full-field events, ρ 0.275 vs
    0.278, well inside fold noise). Evaluated by per-tournament Spearman
    rank correlation, not RMSE, since ranking — not absolute score — is what lineup selection needs.
+   Training a final model also stamps `prize_calibration_` on it: an isotonic map from a player's
+   within-field z-score to expected prize share, fitted on out-of-fold scores
+   (`fit_prize_calibration`; nocut on no-cut events, base/links on events with a cut).
    `temporal_cv()` always trains on seasons < N and tests on season N; **never switch this to a
    random split** — the rolling features would leak future data across the season boundary.
 
@@ -157,7 +160,8 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
 7. **`buzz.py`** + **`optimizer.py`** — `buzz.py` fetches/parses Buzz Fantasy Golf salaries (cookie-
    authenticated API, or a manual CSV) and normalizes player names (strips accents/punctuation,
    converts "Last, First" → "first last") so they join against projections by fuzzy name match.
-   `optimizer.py` is a PuLP integer program maximizing projected prize share under a salary cap,
+   `optimizer.py` is a PuLP integer program maximizing `expected_prize_pct` (the calibrated score;
+   `projected_prize_pct` in the projections CSV is the raw ranker score) under a salary cap,
    supporting locked/excluded players and generating N alternative lineups (each differing from
    every prior one by at least 1 player). Lineup files land in the same tournament folder; distinct
    model-variant and lock/exclude runs get encoded filenames so they don't overwrite each other.

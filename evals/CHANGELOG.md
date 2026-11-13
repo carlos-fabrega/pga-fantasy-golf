@@ -3,6 +3,15 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-11-13: Backtest extended to 2018–2026; lineups optimise expected prize share
+
+**Change.** The agent DB now holds the backfilled events, so `model_performance` covers 2018–2026 and
+"this week" means the latest live weekly event rather than the latest scored one. `propose_lineups`
+maximises expected prize share and returns `total_expected_prize_pct`. guard-06 asks about the 2027
+Masters, since the 2026 Masters now has backtest scores. Cases regenerated.
+
+**Result.** Not run.
+
 ## 2026-11-13: Cases regenerated after the 2023+ backfill and retrain
 
 **Change.** The models were retrained on backfilled 2023–2026 data and the seven live weeks re-scored, so the
