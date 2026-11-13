@@ -50,9 +50,15 @@ N_PLAYERS        = 6
 
 
 def _latest_projections() -> Path:
-    """Return the most recently modified projections.csv across all tournament folders."""
+    """
+    Return the most recently written projections file across all tournament
+    folders, whichever model variant produced it (projections.csv,
+    projections_nocut.csv, projections_links.csv). A links/no-cut week writes
+    only its variant file, so matching projections.csv alone would silently
+    fall back to an earlier event.
+    """
     candidates = sorted(
-        PROCESSED_DIR.glob("*/projections.csv"),
+        PROCESSED_DIR.glob("*/projections*.csv"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )

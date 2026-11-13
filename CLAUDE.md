@@ -30,19 +30,20 @@ python -m src.model --cv      # expanding-window temporal CV report only (no sav
 
 Weekly, before a tournament:
 ```bash
-python -m src.predict                        # auto-detect next event; links/no-cut model auto-selected
+python -m src.predict                        # auto-detect next event; no-cut model auto-selected
 python -m src.predict --tournament R2026030  # score a specific event instead
-python -m src.predict --no-links             # force the base model on a links event
+python -m src.predict --links                # opt in to the links model (not auto-selected)
 python -m src.predict --no-nocut             # force the base model on a no-cut event
 python -m src.predict --latest               # re-score most recent saved features (no scrape)
 python -m src.optimizer --csv data/processed/R2026030_john_deere_classic/salaries.csv \
                         --budget 1650000 --lineups 3
 ```
 
-`predict` defaults to the next upcoming event (via the PGA API) and auto-selects the links model
-for Open/Scottish/Dunhill/Irish, or the no-cut model for limited-field no-cut events (TOUR
-Championship, BMW, Sentry, the old WGCs) — pass `--tournament`, `--no-links`/`--links`, or
-`--no-nocut`/`--nocut` to override. Links is checked first; the two sets don't currently overlap.
+`predict` defaults to the next upcoming event (via the PGA API) and auto-selects the no-cut model
+for limited-field no-cut events (TOUR Championship, BMW, Sentry, the old WGCs) — pass
+`--tournament` or `--no-nocut`/`--nocut` to override. The links model is opt-in only (`--links`):
+`links_sg_hist`/`links_starts` carry no signal in the 2014–2022 training data, so it is the base
+model plus sampling noise until backfilled 2023+ data exists.
 
 Analyst-agent database (see `PGA_AGENT_PLAN.md`) — rebuild after each new weekly run or retrain:
 ```bash

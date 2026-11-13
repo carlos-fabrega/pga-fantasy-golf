@@ -26,6 +26,7 @@ import pandas as pd
 import xgboost as xgb
 
 from agent.db import match_key
+from src.features import is_links_tournament
 from src.model import VARIANT_FEATURES, _spearman_by_tournament, load
 from src.optimizer import DEFAULT_BUDGET, N_PLAYERS, build_lineups
 from src.predict import align_features, select_variant
@@ -103,8 +104,10 @@ def _model_version(con: sqlite3.Connection, ev: sqlite3.Row,
     """
     The model version to report for an event, and every version available.
     Default: the out-of-fold backtest for training events; for live weeks, the
-    variant predict would auto-select (links/nocut/base), falling back to base
-    when that variant wasn't run.
+    variant predict would auto-select (nocut/base), falling back to base
+    when that variant wasn't run. Links events prefer a stored links run:
+    predict auto-selected links until it became opt-in, so that is the version
+    those weeks were actually played with.
     """
     available = [r[0] for r in con.execute(
         "SELECT DISTINCT model_version FROM predictions WHERE event_id = ? ORDER BY 1",
@@ -116,7 +119,12 @@ def _model_version(con: sqlite3.Connection, ev: sqlite3.Row,
             raise ToolError("no_such_model_version",
                             f"{requested!r} was not run for {ev['event_id']}.", available=available)
         return requested, available
-    preferred = "base_oof" if ev["source"] == "training" else select_variant(ev["tournament_name"])
+    if ev["source"] == "training":
+        preferred = "base_oof"
+    elif is_links_tournament(ev["tournament_name"]):
+        preferred = "links"
+    else:
+        preferred = select_variant(ev["tournament_name"])
     if preferred in available:
         return preferred, available
     return ("base" if "base" in available else available[0]), available
@@ -442,20 +450,26 @@ def propose_lineups(con: sqlite3.Connection, event: Optional[str] = None, season
 
 def _event_results(con: sqlite3.Connection, ev: sqlite3.Row, version: str) -> pd.DataFrame:
     return pd.read_sql(
-        "SELECT p.player_id, pl.name, p.rank, p.score, r.finish, r.prize_pct FROM predictions p "
+        "SELECT p.player_id, pl.name, p.rank, p.score, r.finish, r.prize_pct, f.owgr FROM predictions p "
         "JOIN results r USING (player_id, event_id) JOIN players pl USING (player_id) "
+        "LEFT JOIN features f USING (player_id, event_id) "
         "WHERE p.event_id = ? AND p.model_version = ?", con, params=(ev["event_id"], version))
 
 
 def _event_metrics(ev: sqlite3.Row, version: str, df: pd.DataFrame) -> dict:
     """Spearman of score vs prize share (as in model CV), top-10 hits, and the winner's rank."""
     rho = _spearman_by_tournament(df.assign(tournament_id=ev["event_id"]), df["score"].values)
+    # Baseline: rank the same field by world ranking alone (lower OWGR = better).
+    # Players without an OWGR are left out; training events have none at all.
+    owgr_rho = _spearman_by_tournament(df.assign(tournament_id=ev["event_id"]),
+                                       -df["owgr"].astype(float).values)
     top10 = df.nlargest(10, "score")
     winner = df[df["finish"] == 1]
     return {
         "event_id": ev["event_id"], "name": ev["tournament_name"], "season": ev["season"],
         "date": ev["date"], "model_version": version, "players": len(df),
         "spearman": _r(rho.iloc[0], 3) if len(rho) else None,
+        "owgr_spearman": _r(owgr_rho.iloc[0], 3) if len(owgr_rho) else None,
         "top10_hits": int((top10["finish"] <= 10).sum()),
         "winner": ({"name": winner.iloc[0]["name"], "model_rank": int(winner.iloc[0]["rank"])}
                    if len(winner) else None),
@@ -464,8 +478,10 @@ def _event_metrics(ev: sqlite3.Row, version: str, df: pd.DataFrame) -> dict:
 
 def _summary(rows: List[dict]) -> dict:
     rhos = pd.Series([r["spearman"] for r in rows], dtype=float)
+    owgr_rhos = pd.Series([r["owgr_spearman"] for r in rows], dtype=float)
     return {"events": len(rows), "mean_spearman": _r(rhos.mean(), 3),
             "median_spearman": _r(rhos.median(), 3),
+            "mean_owgr_spearman": _r(owgr_rhos.mean(), 3),
             "mean_top10_hits": _r(pd.Series([r["top10_hits"] for r in rows]).mean(), 2)}
 
 
@@ -620,7 +636,9 @@ TOOLS: List[dict] = [
             "alone for that season's summary and events; neither for a summary per season. "
             "spearman is the rank correlation between model score and share of the purse won "
             "(0 = random; call with neither event nor season to compare with the 2018-2022 "
-            "backtest seasons). top10_hits is how many of "
+            "backtest seasons). owgr_spearman is the same correlation for a baseline that ranks "
+            "the field by world ranking alone (null where no OWGR is stored, as in the backtest "
+            "seasons); the model adds value only where spearman is above it. top10_hits is how many of "
             "the model's top 10 finished in the top 10 (ties included). winner.model_rank is where "
             "the model ranked the eventual winner."),
         "input_schema": {"type": "object", "properties": {**_EVENT_PROPS, **_VERSION_PROP}},

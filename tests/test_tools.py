@@ -300,6 +300,7 @@ def test_performance_for_one_event(con):
 
     out = run_tool(con, "model_performance", {"event": "Wyndham"})       # live week, 8 players
     assert out["spearman"] is None                                     # under 20: skipped, as in CV
+    assert out["owgr_spearman"] is None                                # same rule for the OWGR baseline
     assert out["winner"]["name"] == "Scottie Scheffler"                # FIELD[0] finishes first
     assert out["top10_hits"] == len(FIELD)                             # whole field is "top 10"
 

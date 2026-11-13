@@ -19,8 +19,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import pickle
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -91,6 +93,9 @@ VARIANT_PATHS = {
 }
 
 TARGET_COL = "prize_pct"
+
+# Single-feature baseline reported next to the model in evaluate().
+BASELINE_COL = "sg_total_per_round_roll24"
 
 # Relevance grades for rank:ndcg (must be non-negative integers).
 # Mapped from prize_pct so NDCG's 2^grade-1 gain mirrors the prize distribution.
@@ -228,6 +233,11 @@ def evaluate(
     spear_by_t = _spearman_by_tournament(
         df_test.loc[X_test.index], y_pred
     )
+    # Baseline on the same rows: rank the field by one input feature alone.
+    # The model only earns its complexity if it beats this.
+    base_by_t = _spearman_by_tournament(
+        df_test.loc[X_test.index], X_test[BASELINE_COL].values
+    )
 
     metrics = {
         "rmse": rmse,
@@ -236,6 +246,7 @@ def evaluate(
         "spearman_median": float(spear_by_t.median()),
         "spearman_p25": float(spear_by_t.quantile(0.25)),
         "spearman_p75": float(spear_by_t.quantile(0.75)),
+        "baseline_spearman_mean": float(base_by_t.mean()),
         "n_tournaments": len(spear_by_t),
         "n_rows": len(y_test),
     }
@@ -245,6 +256,7 @@ def evaluate(
     print(f"  Spearman ρ  mean={metrics['spearman_mean']:+.3f}  "
           f"median={metrics['spearman_median']:+.3f}  "
           f"[{metrics['spearman_p25']:+.3f}, {metrics['spearman_p75']:+.3f}]")
+    print(f"  Baseline ρ  mean={metrics['baseline_spearman_mean']:+.3f}  (sort by {BASELINE_COL} alone)")
     return metrics
 
 
@@ -334,9 +346,35 @@ def train_final(df: pd.DataFrame, variant: str = "base") -> XGBRanker:
     return model
 
 
-def save(model: XGBRanker, variant: str = "base") -> None:
+def matrix_hash(path: Optional[Path] = None) -> Optional[str]:
+    """SHA-256 of the feature matrix file (default: FEATURE_MATRIX), or None if it doesn't exist."""
+    path = Path(path or FEATURE_MATRIX)
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def staleness_warning(model: XGBRanker, variant: str = "base") -> Optional[str]:
+    """
+    models/ is gitignored, so a pickle can silently outlive the feature matrix
+    it was trained on. save() stamps the matrix hash on the model; this returns
+    a warning when the stamp is missing or no longer matches, else None.
+    """
+    stamp = getattr(model, "feature_matrix_sha256_", None)
+    retrain = f"Retrain with `python -m src.model{'' if variant == 'base' else ' --' + variant}`."
+    if stamp is None:
+        return (f"WARNING: the {variant} model has no feature-matrix stamp, so it can't be "
+                f"checked against the current matrix. {retrain}")
+    if stamp != matrix_hash():
+        return (f"WARNING: the {variant} model was trained on a different feature matrix "
+                f"than the one on disk (stale pickle). {retrain}")
+    return None
+
+
+def save(model: XGBRanker, variant: str = "base", matrix_path: Optional[Path] = None) -> None:
     path = VARIANT_PATHS[variant]
     path.parent.mkdir(parents=True, exist_ok=True)
+    model.feature_matrix_sha256_ = matrix_hash(matrix_path)
     with open(path, "wb") as f:
         pickle.dump(model, f)
     print(f"Model saved → {path}")
@@ -398,7 +436,7 @@ if __name__ == "__main__":
         if cv_results:
             cv_df = pd.DataFrame(cv_results)
             print(f"\nCV Summary across {len(cv_df)} folds:")
-            for col in ["rmse", "mae", "spearman_mean", "spearman_median"]:
+            for col in ["rmse", "mae", "spearman_mean", "spearman_median", "baseline_spearman_mean"]:
                 print(f"  {col:<22} mean={cv_df[col].mean():.3f}  std={cv_df[col].std():.3f}")
     else:
         # Train/test split: train on all but last season, test on last season
@@ -428,4 +466,4 @@ if __name__ == "__main__":
         # Retrain on all seasons for production use
         print(f"\nRetraining on all {len(seasons)} seasons for production ...")
         model_final = train_final(df, variant=variant)
-        save(model_final, variant=variant)
+        save(model_final, variant=variant, matrix_path=Path(args.data))

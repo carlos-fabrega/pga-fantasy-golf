@@ -2,9 +2,9 @@
 Score the upcoming tournament field with the trained model.
 
 Usage:
-    python -m src.predict                       # auto-detect next event; links model auto-selected
+    python -m src.predict                       # auto-detect next event; no-cut model auto-selected
     python -m src.predict --tournament R2026030 # score a specific event
-    python -m src.predict --no-links            # force the base model on a links event
+    python -m src.predict --links               # opt in to the links model (not auto-selected)
     python -m src.predict --no-nocut            # force the base model on a no-cut event
     python -m src.predict --latest              # re-score most recent saved features (no scrape)
 
@@ -21,8 +21,8 @@ from typing import Optional
 
 import pandas as pd
 
-from src.model import VARIANT_FEATURES, load
-from src.features import is_links_tournament, is_nocut_tournament
+from src.model import VARIANT_FEATURES, load, staleness_warning
+from src.features import is_nocut_tournament
 from src.paths import PROCESSED_DIR, HISTORICAL_CSV
 
 
@@ -60,11 +60,13 @@ def select_variant(
     """
     Decide base vs links vs nocut vs playoff. An explicit flag always wins
     (True forces that variant on; False forces "base"); None means auto-detect
-    links (Open/Scottish/Dunhill/Irish) and no-cut (Tour Championship/BMW/
-    Sentry/WGCs — see features._NOCUT_PATTERNS).
+    no-cut (Tour Championship/BMW/Sentry/WGCs — see features._NOCUT_PATTERNS).
 
-    Links is checked first, but the two sets do not currently overlap: every
-    links event on the calendar has a 36-hole cut.
+    NOTE: the links variant is NOT auto-selected. links_sg_hist is entirely
+    NaN and links_starts constant 0 in the 2014-2022 training data (the CSV
+    has no SG for links events), so the model gives both zero importance and
+    differs from base only by column-sampling noise. Re-enable once backfilled
+    2023+ data gives those features training signal. Pass links=True to use it.
     NOTE: the playoff variant is NOT auto-selected for BMW/Tour Championship —
     backtesting (see src/model.py FEATURE_COLS_PLAYOFF comment) showed it
     underperforms the base model on held-out playoff seasons (too little
@@ -76,8 +78,6 @@ def select_variant(
         return next(k for k, v in forced.items() if v is True)
     if any(v is False for v in forced.values()):
         return "base"
-    if is_links_tournament(tournament_name):
-        return "links"
     if is_nocut_tournament(tournament_name):
         return "nocut"
     return "base"
@@ -112,6 +112,9 @@ def predict(
     Returns a DataFrame with player_id, player_name, projected_prize_pct, rank.
     """
     model = load(variant=variant)
+    warning = staleness_warning(model, variant)
+    if warning:
+        print(warning + "\n")
     X = align_features(weekly_df, model)
     preds = model.predict(X)
 
@@ -217,9 +220,7 @@ def main() -> None:
 
     # Announce only auto-detected variants; an explicit flag needs no explanation.
     auto = args.links is None and args.nocut is None and args.playoff is None
-    if auto and variant == "links":
-        print(f"'{t_name}' is a links event → using the links-tuned model.\n")
-    elif auto and variant == "nocut":
+    if auto and variant == "nocut":
         print(f"'{t_name}' is a no-cut event → using the no-cut model "
               f"(made_cut_rate_* dropped). Pass --no-nocut to override.\n")
 
