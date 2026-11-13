@@ -21,6 +21,7 @@ gitignored and not fetched by any script — it must already exist locally.
 
 One-time / whenever historical or scraped data changes:
 ```bash
+python -m src.backfill        # fetch completed mid-2022+ events → data/raw/scraped/ (network; skips files already there)
 python -m src.pipeline        # ingest + feature-engineer → data/processed/feature_matrix.parquet
 python -m src.model           # train XGBRanker on all seasons → models/model_base.pkl
 python -m src.model --links   # train the links-course-tuned variant → models/model_links.pkl
@@ -91,7 +92,7 @@ models/              # trained pickles: model_base.pkl, model_links.pkl (gitigno
 data/
   raw/
     historical/      # 14-22 practice data.csv (the 2014–2022 training source)
-    scraped/         # R{year}{id}.csv from the external scraper
+    scraped/         # R{year}{id}.csv, one per completed event, from src.backfill
     results/         # cached live leaderboards + schedule.csv (agent.db --fetch)
   processed/
     feature_matrix.parquet
@@ -112,11 +113,16 @@ stage modules.
 
 Data flows through a fixed pipeline, one module per stage under `src/`:
 
-1. **`ingest.py`** — standardizes two disjoint sources into one schema: `load_historical()` (the
-   2014–2022 CSV — finish position, purse, DK/FD points, SG as per-round averages) and
-   `load_scraped()` (`data/raw/scraped/R{year}{id}.csv`, SG only, made-cut players only, from an
-   external scraper). `combine()` dedupes on `(player_id, tournament_id, season)`, preferring
-   historical rows where the two sources overlap.
+1. **`backfill.py`** + **`ingest.py`** — two sources, one schema. `load_historical()` reads the
+   2014–2022 CSV (finish position, purse, DK/FD points, SG as per-round averages).
+   `backfill.py` writes one `data/raw/scraped/R{year}{id}.csv` per completed event from the PGA
+   API (whole field with finish and cut; SG for made-cut players only, none at the majors), and
+   `load_scraped()` reads them. `combine()` puts both on one player id via `src/crosswalk.py`
+   (API id where linked, else `"H"` + historical id; the original is kept in `hist_player_id`),
+   drops scraped events the CSV already covers, and adds `course_key`, which maps the two
+   sources' different names for a course onto one key. The API's past-results `year` argument is
+   a season code (`20240`; `20231` for the fall-2023 playing), not a calendar year — see
+   `backfill.season_code`.
 
 2. **`features.py`** — every rolling/history feature is computed with `shift(1)` *before* the
    window, so tournament T's features only ever see T-1 and earlier. **This leakage-safety
@@ -140,7 +146,10 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
 
 5. **`scrape.py`** — hits the PGA Tour GraphQL API directly (`orchestrator.pgatour.com/graphql`);
    the old stats-download CSV endpoint stopped working mid-2025. `build_weekly_features()` builds
-   the live weekly feature matrix that `predict.py` scores.
+   the live weekly feature matrix that `predict.py` scores: it takes only the field and schedule
+   from the API, appends the field to the local history (historical CSV + backfilled events) and
+   runs `features.build_features` on it, so live and training features come from the same code.
+   `predict` first runs the backfill for the current year, so last week's event is in that history.
 
 6. **`predict.py`** — scores a weekly field with the saved model, writing
    `projections.csv` (or `projections_links.csv`) into the tournament folder.

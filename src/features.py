@@ -150,17 +150,16 @@ def _trailing_valid_mean(series: pd.Series, window: int) -> pd.Series:
     Leakage-safe flat mean of up to the `window` most-recent NON-NULL values that
     occur strictly before each row.
 
-    This matches inference exactly: scrape.build_weekly_features computes SG
-    rolling features as the flat mean of a player's last N *SG-recorded* (made-cut)
-    events. Rolling over the raw positional series instead would average over
-    calendar starts and let missed-cut NaN gaps skew the window, diverging from
-    what the live API can produce. See tests/test_feature_parity.py.
+    Rolling over the raw positional series instead would average over calendar
+    starts and let missed-cut NaN gaps skew the window. Rows with no SG of their
+    own (missed cuts, majors, and the field rows scrape.build_weekly_features
+    appends for an upcoming event) get the same mean as any other row: every
+    SG-recorded event before them, the latest one included.
     """
-    valid = series.dropna()
-    trailing = valid.rolling(window, min_periods=1).mean().shift(1)
-    # Map back to every row; carry the last known trailing mean across missed-cut
-    # rows (which have no SG of their own) so they still carry recent form.
-    return trailing.reindex(series.index).ffill()
+    upto = series.dropna().rolling(window, min_periods=1).mean()   # includes the row itself
+    # Carry each mean forward to the rows after it, then shift so a row only
+    # sees means that end strictly before it.
+    return upto.reindex(series.index).ffill().shift(1)
 
 
 # ── Rolling SG averages ────────────────────────────────────────────────────────
@@ -206,8 +205,11 @@ def add_course_history(df: pd.DataFrame) -> pd.DataFrame:
         df["course_starts"] = np.nan
         return df
 
+    # course_key (ingest.combine) is the course name normalised so the historical
+    # and API spellings of one course group together; fall back to the raw name.
+    key = "course_key" if "course_key" in df.columns else "course"
     df["_order"] = _sort_key(df)
-    df = df.sort_values(["player_id", "course", "_order"])
+    df = df.sort_values(["player_id", key, "_order"])
 
     def _expanding_mean_shifted(x: pd.Series) -> pd.Series:
         return x.shift(1).expanding().mean()
@@ -215,11 +217,11 @@ def add_course_history(df: pd.DataFrame) -> pd.DataFrame:
     def _expanding_count_shifted(x: pd.Series) -> pd.Series:
         return x.shift(1).expanding().count()
 
-    df["course_sg_hist"] = df.groupby(["player_id", "course"])[
+    df["course_sg_hist"] = df.groupby(["player_id", key])[
         "sg_total_per_round"
     ].transform(_expanding_mean_shifted)
 
-    df["course_starts"] = df.groupby(["player_id", "course"])[
+    df["course_starts"] = df.groupby(["player_id", key])[
         "sg_total_per_round"
     ].transform(_expanding_count_shifted)
 

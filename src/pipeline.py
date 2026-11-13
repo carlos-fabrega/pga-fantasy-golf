@@ -6,13 +6,13 @@ Typical usage:
 
 Steps:
     1. Load historical CSV (2014-2022)
-    2. Load any scraped CSVs from data/raw/scraped/
+    2. Load any backfilled CSVs from data/raw/scraped/
     3. Combine into one DataFrame
     4. Engineer rolling features (no look-ahead leakage)
     5. Save to data/processed/feature_matrix.parquet
 
-Run the scraper first to get 2023+ data:
-    python -m src.scrape --years 2023 2024 2025 --dir data/raw/scraped
+Run the backfill first to get mid-2022+ data:
+    python -m src.backfill
 """
 
 from pathlib import Path
@@ -43,14 +43,14 @@ def run(
     log(f"  {len(hist):,} rows | {hist['season'].min()}-{hist['season'].max()} seasons")
 
     # ── Step 2: Load scraped data ─────────────────────────────────────────────
-    scraped_files = list(scraped_dir.glob("R????.csv")) if scraped_dir.exists() else []
+    scraped_files = list(scraped_dir.glob("R*.csv")) if scraped_dir.exists() else []
     if scraped_files:
         log(f"Loading {len(scraped_files)} scraped CSVs from {scraped_dir} ...")
         scraped = load_scraped(scraped_dir)
         log(f"  {len(scraped):,} rows | seasons: {sorted(scraped['season'].unique())}")
     else:
         log(f"No scraped CSVs found in {scraped_dir} — using historical data only.")
-        log("  Run: python -m src.scrape --years 2023 2024 2025")
+        log("  Run: python -m src.backfill")
         scraped = pd.DataFrame()
 
     # ── Step 3: Combine ───────────────────────────────────────────────────────

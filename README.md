@@ -100,7 +100,7 @@ flowchart TB
 
 44 questions (`evals/questions.jsonl`): 30 across lookups, explanations, value, lineups and guardrails, plus 14 deliberately hard ones:
 - multi-turn follow-ups;
-- wrong premises ("why is Scheffler #1?" when he's 5th);
+- wrong premises ("why is Henley #1?" when he's 5th);
 - "rounds vs starts" wording traps;
 - a counterintuitive SHAP explanation;
 - questions whose natural answer tempts the model into arithmetic.
@@ -152,8 +152,9 @@ python -m pytest tests/                              # 111 tests, no API calls
 ```
 
 **Known limitations:**
-- Explanations only work for the TOUR Championship and The Open, the live weeks whose saved models still reproduce their scores. The base model was retrained after the other weeks were scored.
-- Live course-history features are always empty. `scrape.py` looks up each player's history at the course by PGA API player id, but the training data uses different ids (Scheffler is 46046 in one, 9478 in the other). The agent DB's crosswalk links the two; the live pipeline doesn't use it yet.
+- Explanations only work for live weekly events. Backtest scores come from per-season models that aren't saved.
+- Stored projections for past 2026 weeks were re-scored by a model that has since trained on those results. `model_performance` grades them on out-of-fold scores instead; the rankings themselves are in-sample.
+- The eval results above were measured before the 2023+ backfill and retrain, on cases generated from the old rankings.
 - The project is on Python 3.8, which pins the Anthropic SDK to 0.72; newer request options go through `extra_body`.
 
 ## Project structure

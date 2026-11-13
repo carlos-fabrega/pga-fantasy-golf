@@ -2,7 +2,8 @@
 Load and standardize raw data from both sources:
 
   - Historical CSV (2014-2022): one row per player-tournament, includes purse and finish pos
-  - Scraped CSVs (2023+): one row per player-tournament, SG only, made-cut players only
+  - Scraped CSVs (mid-2022+, from src.backfill): one row per player-tournament for the
+    whole field; SG for made-cut players only
 
 Both are normalized to a common schema before feature engineering.
 """
@@ -12,6 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 import numpy as np
+
+from src.crosswalk import build_players, match_key
 
 # ── PGA Tour payout table ──────────────────────────────────────────────────────
 # Payout as a fraction of total purse by finish position.
@@ -121,68 +124,45 @@ def load_historical(path: str | Path) -> pd.DataFrame:
     ]
 
     df["source"] = "historical"
-    return df.sort_values("date").reset_index(drop=True)
+    return df.sort_values("date", kind="stable").reset_index(drop=True)
 
 
 # ── Scraped CSVs ───────────────────────────────────────────────────────────────
 
-# Column mapping for the stats-download CSV (stat 02675 / SG Total).
-# The endpoint returns totals across measured rounds; we divide to get per-round.
-_SCRAPE_RENAME = {
-    "RANK": "finish_num",
-    "PLAYER_ID": "player_id",
-    "PLAYER": "player_name",
-    "AVG": "sg_total_per_round",       # already per-round
-    "TOTAL SG:T": "sg_total_event",    # total for the event
-    "TOTAL SG:T2G": "sg_t2g_event",
-    "TOTAL SG:P": "sg_putt_event",
-    "MEASURED ROUNDS": "rounds_played",
-}
+def _parse_usd(val) -> float:
+    s = str(val).replace("$", "").replace(",", "").strip()
+    try:
+        return float(s)
+    except ValueError:
+        return float("nan")
 
 
 def load_scraped(scraped_dir: str | Path) -> pd.DataFrame:
     """
-    Load all R{year}{id}.csv files from scraped_dir (output from the PGA scraper).
-    Returns a standardized DataFrame aligned with load_historical().
-    Only contains players who made the cut (that's all the scraper captures).
+    Load every R{year}{id}.csv that src.backfill wrote to scraped_dir and return
+    a DataFrame aligned with load_historical(): the whole field per event
+    (missed cuts included), per-round SG where the API has it (made-cut players
+    at ShotLink events), and prize_pct from the same payout table as the
+    historical data so the target means the same thing in both eras.
     """
-    scraped_dir = Path(scraped_dir)
     frames = []
-
-    for f in sorted(scraped_dir.glob("R????.csv")):
-        # Filename: R{year}{tournament_id}.csv  e.g. R2024003.csv
-        stem = f.stem          # "R2024003"
-        year = int(stem[1:5])  # 2024
-        tid = stem[5:]         # "003"
-
-        try:
-            df = pd.read_csv(f)
-        except Exception:
-            continue
-
-        df = df.rename(columns=_SCRAPE_RENAME)
-        df["player_id"] = df["player_id"].astype(str)
-        df["tournament_id"] = tid
-        df["season"] = year
-        df["made_cut"] = True
-
-        # Compute per-round SG columns
-        rounds = df["rounds_played"].replace(0, np.nan)
-        if "sg_total_event" in df.columns:
-            df["sg_total_per_round"] = df["sg_total_event"] / rounds
-        if "sg_t2g_event" in df.columns:
-            df["sg_t2g_per_round"] = df["sg_t2g_event"] / rounds
-        if "sg_putt_event" in df.columns:
-            df["sg_putt_per_round"] = df["sg_putt_event"] / rounds
-
-        df["source"] = "scraped"
-        frames.append(df)
-
+    for f in sorted(Path(scraped_dir).glob("R*.csv")):
+        # player_id as str: API ids can have leading zeros ("01706").
+        frames.append(pd.read_csv(f, dtype={"player_id": str, "tournament_id": str}))
     if not frames:
         return pd.DataFrame()
 
-    combined = pd.concat(frames, ignore_index=True)
-    return combined
+    df = pd.concat(frames, ignore_index=True)
+    df["date"] = pd.to_datetime(df["date"])
+    df["season"] = df["season"].astype(int)
+    df["made_cut"] = df["made_cut"].astype(bool)
+    df["rounds_played"] = df["rounds_played"].astype(float)
+    df["purse"] = df["purse"].map(_parse_usd) / 1e6      # millions, like the historical CSV
+    df["prize_pct"] = [
+        pos_to_prize_pct(pos, mc) for pos, mc in zip(df["finish_num"], df["made_cut"])
+    ]
+    df["source"] = "scraped"
+    return df.sort_values("date").reset_index(drop=True)
 
 
 # ── Combine ────────────────────────────────────────────────────────────────────
@@ -201,11 +181,50 @@ _SCHEMA = [
 ]
 
 
+def course_key(course) -> str:
+    """
+    Course name reduced to a join key shared by both sources: the historical
+    CSV says "Muirfield Village Golf Club - Dublin, OH", the API says
+    "Muirfield Village Golf Club".
+    """
+    if pd.isna(course):
+        return ""
+    return str(course).split(" - ")[0].split(",")[0].strip().lower()
+
+
+def _course_bridge(historical: pd.DataFrame, scraped: pd.DataFrame) -> dict:
+    """
+    {historical course_key: API course_key}, learned from events both sources
+    cover (the API reaches back before the historical CSV ends). The two name
+    the same course too differently to normalise ("Bay Hill - Orlando, FL" vs
+    "Arnold Palmer's Bay Hill Club & Lodge"), so an event is paired across
+    sources by its winner and date instead, and the course names follow.
+    """
+    def winners(df: pd.DataFrame) -> pd.DataFrame:
+        w = df[df["finish_num"] == 1]
+        return pd.DataFrame({"winner": w["player_name"].map(match_key), "date": w["date"],
+                             "course_key": w["course"].map(course_key)})
+
+    pairs = winners(historical).merge(winners(scraped), on="winner", suffixes=("_h", "_s"))
+    pairs = pairs[(pairs["date_h"] - pairs["date_s"]).abs() <= pd.Timedelta(days=7)]
+    return dict(zip(pairs["course_key_h"], pairs["course_key_s"]))
+
+
 def combine(historical: pd.DataFrame, scraped: pd.DataFrame) -> pd.DataFrame:
     """
     Merge historical and scraped DataFrames into one canonical DataFrame.
-    Deduplicates on (player_id, tournament_id, season), preferring historical rows
-    where both sources overlap.
+
+    The two sources use different player ids for the same golfer, so when both
+    are present every row is put on one id: the API id where the crosswalk
+    links the golfer (that is what live data uses), else "H" + the historical
+    id so the two id spaces can't collide. The original id of a historical row
+    is kept in hist_player_id. Without this a golfer's rolling history would
+    restart from nothing at the 2022 boundary.
+
+    Scraped events that started on or before the last historical date are
+    dropped: the API covers those too, under different tournament ids, so they
+    would otherwise appear twice. They are first used to learn which course
+    names in the two sources are the same course (_course_bridge).
     """
     frames = []
     if not historical.empty:
@@ -216,11 +235,29 @@ def combine(historical: pd.DataFrame, scraped: pd.DataFrame) -> pd.DataFrame:
     if not frames:
         raise ValueError("Both historical and scraped DataFrames are empty.")
 
+    bridge = {}
+    if not historical.empty and not scraped.empty:
+        bridge = _course_bridge(historical, scraped)
+        scraped = scraped[scraped["date"] > historical["date"].max()]
+        players, _ = build_players(
+            historical[["player_id", "player_name"]], scraped[["player_id", "player_name"]])
+        from_hist = players.dropna(subset=["hist_id"])     # linked → API id, unlinked → "H" + id
+        to_canonical = dict(zip(from_hist["hist_id"], from_hist["player_id"]))
+        historical = historical.assign(
+            hist_player_id=historical["player_id"],
+            player_id=historical["player_id"].map(to_canonical),
+        )
+        frames = [historical, scraped]
+
     df = pd.concat(frames, ignore_index=True)
+    df["course_key"] = df["course"].map(course_key)
+    df["course_key"] = df["course_key"].map(bridge).fillna(df["course_key"])
 
     # Keep historical rows when there's overlap (historical has more columns).
     df["_source_rank"] = df["source"].map({"historical": 0, "scraped": 1}).fillna(1)
-    df = df.sort_values("_source_rank").drop_duplicates(
+    # Stable sort: the historical CSV has a few player-events twice with conflicting
+    # rows, and which one survives must not depend on how many rows are loaded.
+    df = df.sort_values("_source_rank", kind="stable").drop_duplicates(
         subset=["player_id", "tournament_id", "season"], keep="first"
     ).drop(columns=["_source_rank"])
 
