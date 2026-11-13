@@ -23,6 +23,7 @@ Usage — build weekly feature matrix:
 from __future__ import annotations
 
 import os
+import time
 from typing import List, Optional
 
 import pandas as pd
@@ -38,11 +39,20 @@ def _post(query: str, variables: Optional[dict] = None) -> dict:
     body = {"query": query}
     if variables:
         body["variables"] = variables
-    resp = requests.post(
-        _URL, json=body,
-        headers={"x-api-key": _KEY, "Content-Type": "application/json"},
-        timeout=30,
-    )
+    # A backfill makes thousands of calls; one dropped connection or 5xx shouldn't end it.
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                _URL, json=body,
+                headers={"x-api-key": _KEY, "Content-Type": "application/json"},
+                timeout=30,
+            )
+            if resp.status_code < 500:
+                break
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise
+        time.sleep(2 ** attempt)
     resp.raise_for_status()
     return resp.json().get("data", {})
 

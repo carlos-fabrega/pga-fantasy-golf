@@ -68,12 +68,13 @@ def _resolve_event(con: sqlite3.Connection, event: Optional[str] = None,
     """
     event can be an event_id ("R2026060", "2254") or part of a tournament name
     ("Wyndham"). A name resolves to its latest edition, or the one in season.
-    None means the most recent event that has predictions ("this week").
+    None means the most recent live weekly event ("this week"), or the most
+    recent scored event if there are no live weeks.
     """
     if event is None:
         row = con.execute(
             "SELECT * FROM events WHERE event_id IN (SELECT DISTINCT event_id FROM predictions) "
-            "ORDER BY date DESC LIMIT 1").fetchone()
+            "ORDER BY source = 'weekly' DESC, date DESC LIMIT 1").fetchone()
         if row is None:
             raise ToolError("no_data", "The database has no scored events.")
         return row
@@ -337,7 +338,7 @@ def explain_prediction(con: sqlite3.Connection, player_id: str, event: Optional[
 def _priced_field(con: sqlite3.Connection, ev: sqlite3.Row, version: str) -> pd.DataFrame:
     """Players at an event with both a model score and a Buzz salary, best score first."""
     df = pd.read_sql(
-        "SELECT p.player_id, pl.name, p.score, s.salary FROM predictions p "
+        "SELECT p.player_id, pl.name, p.score, p.expected_prize_pct, s.salary FROM predictions p "
         "JOIN players pl USING (player_id) JOIN salaries s USING (player_id, event_id) "
         "WHERE p.event_id = ? AND p.model_version = ? ORDER BY p.score DESC",
         con, params=(ev["event_id"], version))
@@ -417,7 +418,10 @@ def propose_lineups(con: sqlite3.Connection, event: Optional[str] = None, season
         raise ToolError("infeasible", f"The locked players cost ${locked_salary:,}, over the "
                         f"${budget:,} budget.")
 
-    frame = df.assign(projected_prize_pct=df["score"], name_key="")   # the columns the optimizer reads
+    # The optimizer maximises expected prize share. Out-of-fold scores have none, so those
+    # fall back to the raw score.
+    objective = "expected_prize_pct" if df["expected_prize_pct"].notna().all() else "score"
+    frame = df.assign(expected_prize_pct=df[objective], name_key="")   # the columns the optimizer reads
     with contextlib.redirect_stdout(io.StringIO()):   # build_lineups prints when it runs out
         lineups = build_lineups(frame, n_lineups=n_lineups, budget=budget, n_players=N_PLAYERS,
                                 lock_ids=locks, exclude_ids=excludes)
@@ -439,6 +443,8 @@ def propose_lineups(con: sqlite3.Connection, event: Optional[str] = None, season
             "total_salary": int(lu["salary"].sum()),
             "budget_left": budget - int(lu["salary"].sum()),
             "total_score": _r(lu["score"].sum()),
+            **({"total_expected_prize_pct": _r(lu["expected_prize_pct"].sum())}
+               if objective == "expected_prize_pct" else {}),
         } for lu in lineups],
     }
     if len(lineups) < n_lineups:
@@ -482,6 +488,7 @@ def _summary(rows: List[dict]) -> dict:
     return {"events": len(rows), "mean_spearman": _r(rhos.mean(), 3),
             "median_spearman": _r(rhos.median(), 3),
             "mean_owgr_spearman": _r(owgr_rhos.mean(), 3),
+            "owgr_events": int(owgr_rhos.notna().sum()),   # the OWGR mean covers only these
             "mean_top10_hits": _r(pd.Series([r["top10_hits"] for r in rows]).mean(), 2)}
 
 
@@ -539,7 +546,7 @@ def model_performance(con: sqlite3.Connection, event: Optional[str] = None, seas
         by_season.append({"season": int(y), "model_versions": sorted({r["model_version"] for r in in_season}),
                           **_summary(in_season)})
     return {"seasons": by_season,
-            "note": "2018-2022 are out-of-fold backtests; 2026 are the live weekly projections."}
+            "note": "Seasons from 2018 are graded on out-of-fold backtest scores (base_oof)."}
 
 
 # ── Schemas + dispatch ─────────────────────────────────────────────────────────
@@ -578,7 +585,7 @@ TOOLS: List[dict] = [
         "description": (
             "The model's ranking of an event's field: rank, player and score. Live 2026 weeks use "
             "the weekly projection (links model for links events, nocut model for no-cut events); "
-            "2018-2022 events use honest out-of-fold backtest scores (base_oof). Scores are raw "
+            "every other event from 2018 on uses honest out-of-fold backtest scores (base_oof). Scores are raw "
             "ranking outputs, comparable only within one event and model version — not "
             "probabilities or prize shares."),
         "input_schema": {"type": "object", "properties": {
@@ -602,7 +609,7 @@ TOOLS: List[dict] = [
             "compare_to with a second player_id to get the features that drive the gap between "
             "them. If other_features_total is a large share of the score or gap, call again with "
             "a larger top_k. A feature with a null value can still contribute: the model scores "
-            "missing data too. Not available for 2018-2022 backtest events. " + _FEATURE_GLOSSARY),
+            "missing data too. Not available for backtest events. " + _FEATURE_GLOSSARY),
         "input_schema": {"type": "object", "properties": {
             "player_id": _PLAYER_ID, **_EVENT_PROPS,
             "compare_to": {"type": "string", "description": "Optional second player_id to compare against."},
@@ -625,7 +632,7 @@ TOOLS: List[dict] = [
         "name": "propose_lineups",
         "description": (
             f"Build Buzz Fantasy Golf lineups with the salary-cap optimizer: {N_PLAYERS} players, "
-            "total salary within budget, maximizing the summed model score; each extra lineup "
+            "total salary within budget, maximizing the summed expected prize share (the model score calibrated to a share of the purse); each extra lineup "
             "differs from the earlier ones by at least one player. Returns a proposal with a "
             "proposal_id. Nothing is saved or submitted: present the lineups as a proposal for the "
             "user to approve, never as final."),
@@ -648,10 +655,12 @@ TOOLS: List[dict] = [
             "weeks: a stored weekly projection (base, links, nocut) may come from a model retrained "
             "on that week's result, so passing one as model_version can overstate the model. "
             "spearman is the rank correlation between model score and share of the purse won "
-            "(0 = random; call with neither event nor season to compare with the 2018-2022 "
+            "(0 = random; call with neither event nor season to compare with the "
             "backtest seasons). owgr_spearman is the same correlation for a baseline that ranks "
-            "the field by world ranking alone (null where no OWGR is stored, as in the backtest "
-            "seasons); the model adds value only where spearman is above it. top10_hits is how many of "
+            "the field by world ranking alone (null where no OWGR is stored, which is every event "
+            "except the live weeks; in a season summary owgr_events is how many events the OWGR mean "
+            "covers, so compare it with the model only over those); the model adds value only where "
+            "spearman is above it. top10_hits is how many of "
             "the model's top 10 finished in the top 10 (ties included). winner.model_rank is where "
             "the model ranked the eventual winner."),
         "input_schema": {"type": "object", "properties": {**_EVENT_PROPS, **_VERSION_PROP}},

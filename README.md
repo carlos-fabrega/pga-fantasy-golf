@@ -4,11 +4,11 @@ A machine learning pipeline for predicting PGA Tour player performance and gener
 
 ## How it works
 
-1. **Historical data** (2015–2022, 36,843 player-tournament rows) is loaded and standardized — strokes gained stats, course history, cut rates.
+1. **Results data** (2015–2026, 61,993 player-tournament rows) is loaded and standardized — strokes gained stats, course history, cut rates. 2015–mid-2022 comes from a historical CSV; everything since is backfilled from the PGA Tour GraphQL API (`src/backfill.py`) and put on the same player ids and course names.
 2. **Feature engineering** computes rolling averages (8/16/24 tournament windows) per player. Every window is computed with `shift(1)` applied first, so a tournament's features only ever see earlier tournaments — no look-ahead leakage.
 3. **XGBoost `XGBRanker`** (LambdaRank, `rank:ndcg`) is trained to rank a field by `prize_pct` — each player's share of the tournament purse — rather than regressing on a fantasy-points proxy. Validated with expanding-window cross-validation: train on seasons ≤ N, test on N+1.
-4. **Weekly scraper** fetches the live field and each player's recent form from the PGA Tour GraphQL API.
-5. **Optimizer** solves a salary-cap integer program (PuLP) to maximize projected performance within the weekly budget.
+4. **Weekly scraper** fetches the live field from the PGA Tour GraphQL API, appends it to the local history and runs the same feature code as training, so live and training features cannot drift apart.
+5. **Optimizer** solves a salary-cap integer program (PuLP) to maximize expected prize share within the weekly budget. The ranker's score is only an ordering, so it is first calibrated to a share of the purse with an isotonic fit on out-of-fold predictions.
 6. **Analyst agent** answers plain-English questions about the rankings ("why is Scheffler below Si Woo Kim?", "build 2 lineups with Scheffler locked") by calling the pipeline through tools, with a human approval step for lineups and an eval suite. See [Analyst agent](#analyst-agent) below.
 
 ## Results
@@ -16,14 +16,23 @@ A machine learning pipeline for predicting PGA Tour player performance and gener
 Expanding-window temporal CV, scored by per-tournament Spearman rank correlation (ranking is what
 lineup selection needs — not absolute error):
 
-| Test season | Train | Rows | Tournaments | Spearman ρ (mean) |
-|---|---|---|---|---|
-| 2018 | 2015–2017 | 4,863 | 34 | +0.266 |
-| 2019 | 2015–2018 | 5,047 | 35 | +0.258 |
-| 2020 | 2015–2019 | 4,216 | 29 | +0.274 |
-| 2021 | 2015–2020 | 5,615 | 38 | +0.316 |
-| 2022 | 2015–2021 | 3,653 | 26 | +0.278 |
-| **Overall** | | | | **+0.278** (σ 0.022) |
+| Test season | Train | Rows | Tournaments | Model ρ (mean) | Baseline ρ |
+|---|---|---|---|---|---|
+| 2018 | 2015–2017 | 4,876 | 34 | +0.268 | +0.293 |
+| 2019 | 2015–2018 | 5,061 | 35 | +0.261 | +0.285 |
+| 2020 | 2015–2019 | 4,230 | 29 | +0.277 | +0.285 |
+| 2021 | 2015–2020 | 5,625 | 38 | +0.315 | +0.323 |
+| 2022 | 2015–2021 | 5,270 | 40 | +0.280 | +0.283 |
+| 2023 | 2015–2022 | 6,388 | 55 | +0.261 | +0.257 |
+| 2024 | 2015–2023 | 5,353 | 48 | +0.282 | +0.252 |
+| 2025 | 2015–2024 | 5,230 | 46 | +0.269 | +0.208 |
+| 2026 | 2015–2025 | 4,545 | 42 | +0.260 | +0.177 |
+| **Overall** | | | | **+0.275** (σ 0.017) | +0.262 (σ 0.045) |
+
+The baseline ranks each field by one feature, strokes gained total over the last 24 starts. Through
+2022 it matches or beats the model; from 2023 the model holds its level and the baseline falls away. The backfilled data has no strokes
+gained for missed cuts or majors, so the likely reading is that the model adds robustness to missing
+data more than it adds ranking skill.
 
 Reproduce with `python -m src.model --cv`.
 
@@ -34,8 +43,9 @@ which is the point: the earlier number was partly measuring a bias the live pipe
 reproduce. Verify with `python -m tests.test_feature_parity`.
 
 Two tournament-type model variants were built and backtested against this baseline — a links-course
-variant and a FedEx Cup Playoffs variant. The links variant is a no-op (its two extra features have no signal in the 2014–2022 training
-data, so it is opt-in via `--links` until backfilled data exists); the playoff
+variant and a FedEx Cup Playoffs variant. The links variant was a no-op on the 2014–2022 data. Re-tested after the backfill, it scores
++0.012 ρ over the base model on the 10 links events with out-of-fold scores (0.280 vs 0.268, standard
+error 0.007, better at 6 of 10), which is inside the noise, so it stays opt-in via `--links`; the playoff
 variant **underperformed the base model** on playoff events, since ~23 historical playoff editions is
 far too thin to train an 800-tree ranker on. It's kept behind an explicit `--playoff` opt-in rather
 than auto-selected. Negative results are cheaper to keep than to rediscover.
@@ -148,7 +158,7 @@ python -m agent.cli --model claude-haiku-5-5 "Who are the best value plays this 
 python -m evals.generate                             # regenerate cases from the current DB
 python -m evals.run_evals --model claude-haiku-5-5   # run all 44 (about $0.06 on Haiku)
 python -m evals.run_evals --rescore evals/results/<run>.json   # re-grade a saved run, no API calls
-python -m pytest tests/                              # 111 tests, no API calls
+python -m pytest tests/                              # 122 tests, no API calls
 ```
 
 **Known limitations:**

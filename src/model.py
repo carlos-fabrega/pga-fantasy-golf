@@ -27,9 +27,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
+from sklearn.isotonic import IsotonicRegression
 from xgboost import XGBRanker
 
-from src.features import is_playoff_tournament
+from src.features import is_nocut_tournament, is_playoff_tournament
 from src.paths import (
     MODEL_BASE_PATH, MODEL_LINKS_PATH, MODEL_PLAYOFF_PATH, MODEL_NOCUT_PATH,
     FEATURE_MATRIX,
@@ -346,6 +347,43 @@ def train_final(df: pd.DataFrame, variant: str = "base") -> XGBRanker:
     return model
 
 
+# ── Score → expected prize share ───────────────────────────────────────────────
+
+def _field_z(scores) -> np.ndarray:
+    """Scores standardised within one field, so they compare across models and events."""
+    s = np.asarray(scores, dtype=float)
+    return (s - s.mean()) / s.std(ddof=1)
+
+
+def fit_prize_calibration(df: pd.DataFrame, variant: str = "base") -> Tuple[List[float], List[float]]:
+    """
+    Knots of a monotone map from a player's within-field z-score to the prize
+    share players with that z-score went on to earn. The ranker's raw score is
+    only an ordering; the optimizer needs something on the scale of what a
+    lineup is paid in, where the top of a field is worth far more than a
+    linear score suggests.
+
+    Fitted on out-of-fold scores, so it describes how the model does on events
+    it has not seen. No-cut events pay the whole field, so the nocut variant is
+    fitted on those and base/links on events with a cut.
+    """
+    oof = oof_predictions(df, variant=variant)
+    nocut = oof["tournament_name"].map(is_nocut_tournament)
+    if variant == "nocut":
+        oof = oof[nocut]
+    elif variant in ("base", "links"):
+        oof = oof[~nocut]
+    z = oof.groupby("tournament_id")["score"].transform(_field_z)
+    iso = IsotonicRegression().fit(z, oof[TARGET_COL])
+    return list(iso.X_thresholds_), list(iso.y_thresholds_)
+
+
+def expected_prize_pct(model: XGBRanker, scores) -> np.ndarray:
+    """Expected prize share for each score in one field, from the model's stamped calibration."""
+    x, y = model.prize_calibration_
+    return np.interp(_field_z(scores), x, y)
+
+
 def matrix_hash(path: Optional[Path] = None) -> Optional[str]:
     """SHA-256 of the feature matrix file (default: FEATURE_MATRIX), or None if it doesn't exist."""
     path = Path(path or FEATURE_MATRIX)
@@ -466,4 +504,6 @@ if __name__ == "__main__":
         # Retrain on all seasons for production use
         print(f"\nRetraining on all {len(seasons)} seasons for production ...")
         model_final = train_final(df, variant=variant)
+        print("Calibrating scores to expected prize share (out-of-fold) ...")
+        model_final.prize_calibration_ = fit_prize_calibration(df, variant=variant)
         save(model_final, variant=variant, matrix_path=Path(args.data))

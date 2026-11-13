@@ -4,7 +4,7 @@ Consolidated read-only database for the PGA analyst agent.
 Joins every local data source into one SQLite file (data/processed/agent.sqlite):
 
   players      one row per golfer, reconciling the two player-ID spaces
-  events       one row per tournament edition (2015-2022 training + scored live weeks)
+  events       one row per tournament edition (historical + backfilled + scored live weeks)
   features     model inputs per player-event
   predictions  model scores per player-event (out-of-fold backtest + live weekly;
                live weeks already in the feature matrix get both)
@@ -113,9 +113,9 @@ def build(db_path: Path = AGENT_DB, verbose: bool = True) -> Dict[str, int]:
             print(msg)
 
     fm = pd.read_parquet(FEATURE_MATRIX)
-    # The agent's events are the historical CSV plus the scored live weeks.
-    # Backfilled (scraped) rows are kept aside only to score those weeks out of
-    # fold below; historical rows go back to their original ids for the crosswalk.
+    # Historical rows go back to their original ids for the crosswalk below.
+    # Backfilled (scraped) rows already carry API ids; they rejoin fm once the
+    # historical ids are mapped, except the live weeks, which have their own folders.
     scraped = fm.iloc[0:0]
     if "hist_player_id" in fm.columns:
         scraped = fm[fm["source"] == "scraped"]
@@ -134,7 +134,8 @@ def build(db_path: Path = AGENT_DB, verbose: bool = True) -> Dict[str, int]:
         log(f"No cached results for {missing_results} — run `python -m agent.db --fetch`.")
 
     # ── players ────────────────────────────────────────────────────────────────
-    api_sources = list(weekly.values()) + list(projections.values()) + [r for r in results.values() if not r.empty]
+    api_sources = (list(weekly.values()) + list(projections.values())
+                   + [r for r in results.values() if not r.empty] + [scraped])
     api = pd.concat([df[["player_id", "player_name"]] for df in api_sources])
     players, review = build_players(fm[["player_id", "player_name"]], api)
     review.to_csv(PLAYER_REVIEW, index=False)
@@ -144,6 +145,9 @@ def build(db_path: Path = AGENT_DB, verbose: bool = True) -> Dict[str, int]:
 
     hist_to_pid = dict(zip(players["hist_id"].dropna(), players.loc[players["hist_id"].notna(), "player_id"]))
     fm["player_id"] = fm["player_id"].map(hist_to_pid)
+    live_rows = scraped["tournament_id"].isin(weekly)
+    fm = pd.concat([fm, scraped[~live_rows]], ignore_index=True)
+    scraped = scraped[live_rows]
 
     # ── events ─────────────────────────────────────────────────────────────────
     ev_train = (fm.groupby("tournament_id")
@@ -187,9 +191,9 @@ def build(db_path: Path = AGENT_DB, verbose: bool = True) -> Dict[str, int]:
         p.assign(event_id=tid, model_version=variant, score=p["projected_prize_pct"])
         for (tid, variant), p in projections.items()
     ], ignore_index=True)
-    predictions = pd.concat([p_train, p_live], ignore_index=True)[
-        ["player_id", "event_id", "model_version", "score", "rank"]
-    ]
+    # expected_prize_pct exists for live projections only (NULL for base_oof).
+    predictions = pd.concat([p_train, p_live], ignore_index=True).reindex(
+        columns=["player_id", "event_id", "model_version", "score", "rank", "expected_prize_pct"])
 
     # ── results ────────────────────────────────────────────────────────────────
     # fm also has a raw "finish" string column ("T5"); finish_num is the numeric one.
