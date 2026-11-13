@@ -4,7 +4,7 @@ import os
 
 import pandas as pd
 
-from src import model, optimizer, scrape
+from src import features, model, optimizer, scrape
 from src.predict import select_variant
 
 
@@ -31,28 +31,39 @@ def test_links_is_opt_in_and_nocut_is_auto():
     assert select_variant("TOUR Championship", nocut=False) == "base"
 
 
-def test_weekly_features_match_training_encoding(monkeypatch):
-    history = pd.DataFrame({
-        "date": pd.date_range("2026-01-01", periods=10, freq="7D"),
-        "tournament_name": ["Some Open"] * 10,
-        **{stat: [float(i) for i in range(10)] for stat in scrape.SG_STAT_IDS},
-    })
+def test_rolling_sg_includes_latest_event_on_rows_without_sg():
+    # A missed cut (NaN) after a recorded event must still see that event.
+    sg = pd.Series([1.0, float("nan"), 3.0, float("nan")])
+    out = features._trailing_valid_mean(sg, 8)
+    assert pd.isna(out[0])
+    assert out.tolist()[1:] == [1.0, 1.0, 2.0]
+
+
+def test_weekly_features_use_local_history(monkeypatch):
+    # Player "1": ten weekly starts at Test GC, sg_total 0..9, every cut made.
+    history = pd.DataFrame([{
+        "player_id": "1", "player_name": "Has History", "tournament_id": f"E{i}",
+        "tournament_name": "Some Open", "course": "Test GC", "course_key": "test gc",
+        "date": pd.Timestamp("2026-01-01") + pd.Timedelta(weeks=i),
+        "rounds_played": 4.0, "made_cut": True, "sg_total_per_round": float(i),
+        "source": "scraped"} for i in range(10)])
     monkeypatch.setattr(scrape, "get_field", lambda tid: [
         {"player_id": "1", "player_name": "Has History", "owgr": 5},
         {"player_id": "2", "player_name": "No History", "owgr": 900}])
     monkeypatch.setattr(scrape, "get_upcoming_tournaments", lambda n=10: [
-        {"tournament_id": "R1", "tournament_name": "Test Classic", "course": "Test GC"}])
-    monkeypatch.setattr(scrape, "get_player_sg_history",
-                        lambda pid, n_events=10: history if pid == "1" else pd.DataFrame())
-    monkeypatch.setattr(scrape, "get_player_cut_history", lambda pid, n_events=24: [])
-    monkeypatch.setattr(scrape.time, "sleep", lambda s: None)
+        {"tournament_id": "R1", "tournament_name": "Test Classic", "course": "Test GC",
+         "start_date": pd.Timestamp("2026-03-19").value // 10**6}])
 
-    df = scrape.build_weekly_features("R1").set_index("player_id")
+    df = scrape.build_weekly_features("R1", history=history).set_index("player_id")
 
-    assert df.loc["1", "starts_last8"] == 8                 # 10 events of history, capped like training
-    assert df.loc["1", "sg_total_per_round_roll8"] == 5.5   # mean of the last 8 values (2..9)
+    assert df.loc["1", "sg_total_per_round_roll8"] == 5.5    # last 8 values (2..9), latest included
+    assert df.loc["1", "sg_total_per_round_roll24"] == 4.5   # all 10: no 10-event cap
+    assert df.loc["1", "starts_last8"] == 8
+    assert df.loc["1", "made_cut_rate_roll8"] == 1.0
+    assert df.loc["1", "course_starts"] == 10 and df.loc["1", "course_sg_hist"] == 4.5
+    assert pd.isna(df.loc["2", "sg_total_per_round_roll8"])
     for col in ("course_starts", "links_starts", "playoff_starts"):
-        assert (df[col] == 0).all()                         # 0, not NaN, when there is no history
+        assert df.loc["2", col] == 0                         # 0, not NaN, when there is no history
 
 
 def test_staleness_warning(tmp_path, monkeypatch):

@@ -15,6 +15,7 @@ For links model: projections_links.csv in the same folder.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import re
 from pathlib import Path
 from typing import Optional
@@ -23,7 +24,7 @@ import pandas as pd
 
 from src.model import VARIANT_FEATURES, load, staleness_warning
 from src.features import is_nocut_tournament
-from src.paths import PROCESSED_DIR, HISTORICAL_CSV
+from src.paths import PROCESSED_DIR
 
 
 def tournament_dir(tournament_id: str, tournament_name: str) -> Path:
@@ -186,11 +187,12 @@ def main() -> None:
               f"@ {upcoming[0]['course']}  ({args.tournament})\n")
 
     if args.tournament:
-        from src.ingest import load_historical
+        from src import backfill
         from src.scrape import build_weekly_features
 
-        hist = load_historical(HISTORICAL_CSV) if HISTORICAL_CSV.exists() else None
-        weekly_df = build_weekly_features(args.tournament, historical_df=hist)
+        # Features come from the local history, so fetch any event finished since the last run.
+        backfill.run([dt.date.today().year])
+        weekly_df = build_weekly_features(args.tournament)
 
         t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else args.tournament
         out_dir = tournament_dir(args.tournament, t_name)

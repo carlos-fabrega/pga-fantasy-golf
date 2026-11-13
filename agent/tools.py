@@ -485,6 +485,16 @@ def _summary(rows: List[dict]) -> dict:
             "mean_top10_hits": _r(pd.Series([r["top10_hits"] for r in rows]).mean(), 2)}
 
 
+def _graded_version(con: sqlite3.Connection, ev: sqlite3.Row, requested: Optional[str]) -> str:
+    """
+    The version to grade against results: out-of-fold scores wherever they are
+    stored. A live week's own projection is only a fair test until the model is
+    retrained on data that includes that week; its base_oof scores always are.
+    """
+    version, available = _model_version(con, ev, requested)
+    return "base_oof" if requested is None and "base_oof" in available else version
+
+
 def model_performance(con: sqlite3.Connection, event: Optional[str] = None, season: Optional[int] = None,
                       model_version: Optional[str] = None) -> dict:
     """
@@ -494,7 +504,7 @@ def model_performance(con: sqlite3.Connection, event: Optional[str] = None, seas
     """
     if event is not None:
         ev = _resolve_event(con, event, season)
-        version, _ = _model_version(con, ev, model_version)
+        version = _graded_version(con, ev, model_version)
         df = _event_results(con, ev, version)
         if df.empty:
             raise ToolError("no_results", f"No results stored for {ev['event_id']} yet.")
@@ -507,7 +517,7 @@ def model_performance(con: sqlite3.Connection, event: Optional[str] = None, seas
     rows: List[dict] = []
     for ev in evs:
         try:
-            version, _ = _model_version(con, ev, model_version)
+            version = _graded_version(con, ev, model_version)
         except ToolError:   # requested version wasn't run for this event
             continue
         rows.append(_event_metrics(ev, version, _event_results(con, ev, version)))
@@ -633,7 +643,10 @@ TOOLS: List[dict] = [
         "name": "model_performance",
         "description": (
             "How well the model's rankings matched actual results. Pass event for one event; season "
-            "alone for that season's summary and events; neither for a summary per season. "
+            "alone for that season's summary and events; neither for a summary per season. Events "
+            "are graded on out-of-fold scores (base_oof) wherever those exist, including past live "
+            "weeks: a stored weekly projection (base, links, nocut) may come from a model retrained "
+            "on that week's result, so passing one as model_version can overstate the model. "
             "spearman is the rank correlation between model score and share of the purse won "
             "(0 = random; call with neither event nor season to compare with the 2018-2022 "
             "backtest seasons). owgr_spearman is the same correlation for a baseline that ranks "

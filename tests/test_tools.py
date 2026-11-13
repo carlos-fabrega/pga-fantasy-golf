@@ -85,6 +85,7 @@ def con(tmp_path, model, monkeypatch):
         backtest,
         _scores("R2026541", "base"),                   # links event that only has base scores
         _scores("R2026013", "base"),
+        _scores("R2026013", "base_oof", offset=-0.25), # live week since added to the feature matrix
         _scores("R2026060", "nocut"),
         _scores("R2026060", "base", offset=0.5),       # scored by a model since retrained
     ], ignore_index=True)
@@ -178,7 +179,7 @@ def test_rankings_event_errors(con):
     assert set(out["candidates"]) == {"TOUR Championship", "Wyndham Championship"}
     assert run_tool(con, "get_rankings", {"event": "Masters"})["error"] == "event_not_found"
     out = run_tool(con, "get_rankings", {"event": "R2026013", "model_version": "links"})
-    assert out["error"] == "no_such_model_version" and out["available"] == ["base"]
+    assert out["error"] == "no_such_model_version" and out["available"] == ["base", "base_oof"]
 
 
 # ── get_player_features ────────────────────────────────────────────────────────
@@ -303,6 +304,13 @@ def test_performance_for_one_event(con):
     assert out["owgr_spearman"] is None                                # same rule for the OWGR baseline
     assert out["winner"]["name"] == "Scottie Scheffler"                # FIELD[0] finishes first
     assert out["top10_hits"] == len(FIELD)                             # whole field is "top 10"
+
+
+def test_performance_grades_live_weeks_out_of_fold_when_stored(con):
+    assert run_tool(con, "model_performance", {"event": "Wyndham"})["model_version"] == "base_oof"
+    out = run_tool(con, "model_performance", {"event": "Wyndham", "model_version": "base"})
+    assert out["model_version"] == "base"                              # an explicit version still wins
+    assert run_tool(con, "get_rankings", {"event": "Wyndham"})["model_version"] == "base"   # as played
 
 
 def test_performance_by_season_and_overall(con):

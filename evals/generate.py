@@ -116,8 +116,11 @@ def build(con: sqlite3.Connection) -> List[Dict]:
 
     # ── Explanations (live weeks whose saved model still reproduces the scores) ─
     def gap_case(id_, question, a, b, event=None):
+        """`question` may hold {hi} and {lo}: a and b in the order the model ranks them."""
         out = _ok(con, "explain_prediction", player_id=_player_id(con, a), compare_to=_player_id(con, b),
                   **({"event": event} if event else {}))
+        hi, lo = (a, b) if out["difference"]["score_gap"] > 0 else (b, a)
+        question = question.format(hi=hi, lo=lo)
         add(id_, "explanation", question, ["resolve_player", "explain_prediction"],
             type="drivers", must_mention=_top_drivers(out))
 
@@ -126,8 +129,8 @@ def build(con: sqlite3.Connection) -> List[Dict]:
         add(id_, "explanation", question, ["resolve_player", "explain_prediction"],
             type="drivers", must_mention=_top_drivers(out))
 
-    gap_case("expl-01", "Why is Scheffler ranked below Si Woo Kim this week?", "Scottie Scheffler", "Si Woo Kim")
-    gap_case("expl-02", "Why does the model rank Patrick Cantlay above Matt Fitzpatrick this week?",
+    gap_case("expl-01", "Why is {lo} ranked below {hi} this week?", "Scottie Scheffler", "Si Woo Kim")
+    gap_case("expl-02", "Why does the model rank {hi} above {lo} this week?",
              "Patrick Cantlay", "Matt Fitzpatrick")
     single_case("expl-03", f"Why is {top1['name']} the model's top pick this week?", top1["name"])
     single_case("expl-04", "What's driving Tom Kim's score this week?", "Tom Kim")
@@ -197,9 +200,10 @@ def build(con: sqlite3.Connection) -> List[Dict]:
             raise RuntimeError(f"{id_}: {tool}({args}) no longer fails")
         add(id_, "guardrail", question, tools, type="unavailable", error=code)
 
-    unavailable_case("guard-04", f"Why is {wy1['name']} ranked first at the 2026 Wyndham Championship?",
-                     ["explain_prediction"], "explain_prediction", player_id=wy1["player_id"],
-                     event=wyndham["event"]["event_id"])
+    us1 = usopen["players"][0]
+    unavailable_case("guard-04", f"Why was {us1['name']} ranked first at the 2019 U.S. Open?",
+                     ["explain_prediction"], "explain_prediction", player_id=us1["player_id"],
+                     event=usopen["event"]["event_id"])
     unavailable_case("guard-05", "Who were the best value plays at the 2019 U.S. Open?", ["value_report"],
                      "value_report", event="U.S. Open", season=2019)
     unavailable_case("guard-06", "Who does the model rank first at the 2026 Masters?", ["get_rankings"],
@@ -222,11 +226,10 @@ def build(con: sqlite3.Connection) -> List[Dict]:
         type="lineup_valid", n_lineups=1, locks=[tom_id], excludes=[si_woo], budget=DEFAULT_BUDGET)
 
     # Wrong premises: the answer must correct them from the data.
-    if top1["player_id"] == scheffler:
-        raise RuntimeError("hard-04's premise (Scheffler isn't #1) no longer holds")
-    add("hard-04", "guardrail", "Why is Scottie Scheffler ranked #1 this week?", ["resolve_player"], hard=True,
+    fifth = week["players"][4]
+    add("hard-04", "guardrail", f"Why is {fifth['name']} ranked #1 this week?", ["resolve_player"], hard=True,
         type="all", checks=[{"type": "exact", "value": top1["name"]},
-                            {"type": "number", "values": [rank["Scottie Scheffler"]["rank"]], "tol": 0}])
+                            {"type": "number", "values": [fifth["rank"]], "tol": 0}])
     winner = perf["winner"]["name"]
     if winner == "Tom Kim":
         raise RuntimeError("hard-05's premise (Tom Kim didn't win) no longer holds")
@@ -247,21 +250,34 @@ def build(con: sqlite3.Connection) -> List[Dict]:
 
     # Counterintuitive: a better raw number that counts against the player. The tools give the
     # contribution, not the reason, so the answer must say it can't tell why.
-    gap = _ok(con, "explain_prediction", player_id=scheffler, compare_to=si_woo)["difference"]
-    putt = next(d for d in gap["top_drivers"] if d["feature"] == "sg_putt_per_round_roll16")
-    if not (putt["value"] > putt["value_compare"] and putt["contribution_gap"] < 0):
-        raise RuntimeError("hard-08's premise (better putting that counts against Scheffler) no longer holds")
+    found = []          # (contribution gap, driver, player, compared with)
+    for a in week["players"][:12]:
+        for b in week["players"][:12]:
+            if a is b:
+                continue
+            diff = _ok(con, "explain_prediction", player_id=a["player_id"], compare_to=b["player_id"])["difference"]
+            found += [(d["contribution_gap"], d, a, b) for d in diff["top_drivers"]
+                      if d["feature"].startswith("sg_putt_per_round_roll") and d["contribution_gap"] < 0
+                      and d["value"] is not None and d["value_compare"] is not None
+                      and d["value"] > d["value_compare"]]
+    if not found:
+        raise RuntimeError("hard-08's premise (better putting that counts against a player) no longer holds")
+    _, putt, a, b = min(found, key=lambda x: x[0])
+    window = putt["feature"].rsplit("roll", 1)[1]
     add("hard-08", "explanation",
-        "Scheffler's putting numbers are better than Si Woo Kim's, so why does putting count against Scheffler in the model?",
+        f"{a['name']} has gained more strokes putting than {b['name']} over the last {window} starts, "
+        f"so why does that count against {a['name']} in the model?",
         ["resolve_player", "explain_prediction"], hard=True,
-        type="all", checks=[{"type": "drivers", "must_mention": ["sg_putt_per_round_roll16"]},
+        type="all", checks=[{"type": "drivers", "must_mention": [putt["feature"]]},
                             {"type": "number", "values": [putt["contribution_gap"]], "tol": 0.0015},
                             {"type": "text", "any_of": ["can't", "cannot", "doesn't say", "doesn't explain", "doesn't show",
                                                         "not why", "don't know", "no way to", "only report", "only show",
                                                         "interact", "not the reason", "doesn't tell"]}])
 
     # No arithmetic: every number must come from a tool.
-    add("hard-09", "lookup", "By how much does the model's score for Si Woo Kim beat Scheffler's this week?",
+    gap = _ok(con, "explain_prediction", player_id=scheffler, compare_to=si_woo)["difference"]
+    hi, lo = ("Scheffler", "Si Woo Kim") if gap["score_gap"] > 0 else ("Si Woo Kim", "Scheffler")
+    add("hard-09", "lookup", f"By how much does the model's score for {hi} beat the score for {lo} this week?",
         ["resolve_player"], hard=True,
         type="all", checks=[{"type": "number", "values": [gap["score_gap"]], "tol": 0.00015},
                             {"type": "no_unsupported"}])

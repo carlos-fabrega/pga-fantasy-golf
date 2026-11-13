@@ -3,6 +3,23 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-11-13: Cases regenerated after the 2023+ backfill and retrain
+
+**Change.** The models were retrained on backfilled 2023–2026 data and the seven live weeks re-scored, so the
+rankings behind the cases changed (Scheffler is now #1 at the TOUR Championship, not below Si Woo Kim). Five
+cases had premises tied to the old rankings and now take them from the data:
+- expl-01, expl-02, hard-09: the question names the two players in the order the model ranks them.
+- guard-04: every live week's model now reproduces its scores, so the unexplainable event is a backtest one
+  (2019 U.S. Open, `unsupported`) instead of a base-model week (`model_changed`).
+- hard-04: the wrong "#1" is whoever is ranked 5th.
+- hard-08: the pair and putting window are searched for in this week's top 12 (better putting number, negative
+  contribution gap); the generator stops if none exists.
+
+`model_performance` now grades the live weeks on out-of-fold scores, which changes perf-01 and hard-13.
+
+**Result.** Not run: no API calls were made. Earlier results were measured on the old cases and rankings, so they
+aren't comparable with runs on this set; re-run the baseline before measuring the next change.
+
 ## 2026-10-28: Iteration 1, "don't do arithmetic" prompt rule
 
 **Change.** One system prompt rule: "Never add, subtract or average numbers yourself; report the figure a tool
