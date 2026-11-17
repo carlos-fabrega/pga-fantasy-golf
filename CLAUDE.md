@@ -22,6 +22,7 @@ gitignored and not fetched by any script — it must already exist locally.
 One-time / whenever historical or scraped data changes:
 ```bash
 python -m src.backfill        # fetch completed mid-2022+ events → data/raw/scraped/ (network; skips files already there)
+python -m src.owgr            # world-ranking snapshots → data/raw/owgr/ (network; skips past seasons already there)
 python -m src.pipeline        # ingest + feature-engineer → data/processed/feature_matrix.parquet
 python -m src.model           # train XGBRanker on all seasons → models/model_base.pkl
 python -m src.model --links   # train the links-course-tuned variant → models/model_links.pkl
@@ -75,7 +76,7 @@ python -m evals.compare --before <runs>.json --after <runs>.json   # mean metric
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
 `python -m pytest tests/` covers the agent DB, tools, loop, CLI, guardrails and eval graders only (no API calls: the loop tests use a fake client). For the model, verify changes by re-running
-`python -m src.model --cv` and checking the mean Spearman rank correlation (0.281 over 9 folds is the current baseline), or
+`python -m src.model --cv` and checking the mean Spearman rank correlation (0.311 over 9 folds is the current baseline), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
 ## File layout
@@ -94,6 +95,7 @@ data/
     historical/      # 14-22 practice data.csv (the 2014–2022 training source)
     scraped/         # R{year}{id}.csv, one per completed event, from src.backfill
     results/         # cached live leaderboards + schedule.csv (agent.db --fetch)
+    owgr/            # world-ranking snapshots: {season}.csv from src.owgr, week_{date}.csv from predict
   processed/
     feature_matrix.parquet
     agent.sqlite, player_crosswalk_review.csv
@@ -129,7 +131,10 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
    invariant is what the whole model's validity depends on — preserve it in any new feature.**
    Windows are 8/16/24 tournament starts (not calendar weeks). `prize_pct_roll*` is the rolling
    mean of the target itself over prior starts: results-based form that exists for every start,
-   where SG is missing for missed cuts and majors (CV +0.006 to +0.008 ρ, better in all 9 folds). `is_links_tournament()` flags The
+   where SG is missing for missed cuts and majors (CV +0.006 to +0.008 ρ, better in all 9 folds). `owgr_rank`/`owgr_points` (`add_owgr`) are
+   the player's world ranking in the latest `src.owgr` snapshot dated before the event; never take
+   OWGR from a past event's field listing, which the API fills with the post-event ranking
+   (CV +0.014 ρ). `is_links_tournament()` flags The
    Open, Scottish Open, Dunhill Links, and Irish Open for the separate links feature set;
    `is_nocut_tournament()` flags limited-field no-cut events for the nocut feature set.
 
@@ -143,6 +148,8 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
    a risk that doesn't exist; CV shows dropping it costs nothing on full-field events, ρ 0.275 vs
    0.278, well inside fold noise). Evaluated by per-tournament Spearman
    rank correlation, not RMSE, since ranking — not absolute score — is what lineup selection needs.
+   The ranker has 100 trees: at 800 it overfit and lost to sorting by world ranking alone
+   (out-of-fold ρ 0.281 → 0.297 on the same features).
    Training a final model also stamps `prize_calibration_` on it: an isotonic map from a player's
    within-field z-score to expected prize share, fitted on out-of-fold scores
    (`fit_prize_calibration`; nocut on no-cut events, base/links on events with a cut).
@@ -154,7 +161,8 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
    the live weekly feature matrix that `predict.py` scores: it takes only the field and schedule
    from the API, appends the field to the local history (historical CSV + backfilled events) and
    runs `features.build_features` on it, so live and training features come from the same code.
-   `predict` first runs the backfill for the current year, so last week's event is in that history.
+   `predict` first runs the backfill for the current year, so last week's event is in that history,
+   and saves the current world ranking (`owgr.fetch_latest`).
 
 6. **`predict.py`** — scores a weekly field with the saved model, writing
    `projections.csv` (or `projections_links.csv`) into the tournament folder.

@@ -54,6 +54,9 @@ FEATURE_COLS: List[str] = [
     # every start (missed cuts and majors included), where SG is not.
     "prize_pct_roll8",  "prize_pct_roll16",  "prize_pct_roll24",
     "starts_last8",
+    # World ranking before the event (src.owgr): a long-horizon, field-strength-
+    # adjusted signal the 8/16/24-start windows don't carry.
+    "owgr_rank", "owgr_points",
     # Historical performance at FedEx Cup Playoff events (BMW, Tour Championship,
     # pre-2019 Barclays/Dell Technologies/Deutsche Bank, WGC-FedEx St. Jude).
     # Included in the base feature set (available for every prediction, not just
@@ -124,7 +127,9 @@ MODEL_PATH = MODEL_BASE_PATH
 
 # ── XGBoost config ─────────────────────────────────────────────────────────────
 
-def _make_model(n_estimators: int = 800) -> XGBRanker:
+def _make_model(n_estimators: int = 100) -> XGBRanker:
+    # 100 trees, not more: at 800 the ranker overfit and lost to sorting by world
+    # ranking alone (out-of-fold ρ 0.280 at 800 vs 0.297 at 100 on the same features).
     # LambdaRank (rank:ndcg) directly optimises ranking rather than regressing
     # on prize_pct.  prize_pct is used as the relevance score: winner (0.18)
     # is most relevant, missed cut (0.0) is least.  This avoids the target-scale

@@ -5,7 +5,7 @@ A machine learning pipeline for predicting PGA Tour player performance and gener
 ## How it works
 
 1. **Results data** (2015–2026, 61,993 player-tournament rows) is loaded and standardized — strokes gained stats, course history, cut rates. 2015–mid-2022 comes from a historical CSV; everything since is backfilled from the PGA Tour GraphQL API (`src/backfill.py`) and put on the same player ids and course names.
-2. **Feature engineering** computes rolling averages (8/16/24 tournament windows) per player. Every window is computed with `shift(1)` applied first, so a tournament's features only ever see earlier tournaments — no look-ahead leakage.
+2. **Feature engineering** computes rolling averages (8/16/24 tournament windows) per player, plus each player's world ranking going into the event. Every window is computed with `shift(1)` applied first, so a tournament's features only ever see earlier tournaments — no look-ahead leakage.
 3. **XGBoost `XGBRanker`** (LambdaRank, `rank:ndcg`) is trained to rank a field by `prize_pct` — each player's share of the tournament purse — rather than regressing on a fantasy-points proxy. Validated with expanding-window cross-validation: train on seasons ≤ N, test on N+1.
 4. **Weekly scraper** fetches the live field from the PGA Tour GraphQL API, appends it to the local history and runs the same feature code as training, so live and training features cannot drift apart.
 5. **Optimizer** solves a salary-cap integer program (PuLP) to maximize expected prize share within the weekly budget. The ranker's score is only an ordering, so it is first calibrated to a share of the purse with an isotonic fit on out-of-fold predictions.
@@ -18,25 +18,37 @@ lineup selection needs — not absolute error):
 
 | Test season | Train | Rows | Tournaments | Model ρ (mean) | Baseline ρ |
 |---|---|---|---|---|---|
-| 2018 | 2015–2017 | 4,876 | 34 | +0.273 | +0.293 |
-| 2019 | 2015–2018 | 5,061 | 35 | +0.269 | +0.285 |
-| 2020 | 2015–2019 | 4,230 | 29 | +0.286 | +0.285 |
-| 2021 | 2015–2020 | 5,625 | 38 | +0.321 | +0.323 |
-| 2022 | 2015–2021 | 5,270 | 40 | +0.284 | +0.283 |
-| 2023 | 2015–2022 | 6,388 | 55 | +0.268 | +0.257 |
-| 2024 | 2015–2023 | 5,353 | 48 | +0.290 | +0.252 |
-| 2025 | 2015–2024 | 5,230 | 46 | +0.271 | +0.208 |
-| 2026 | 2015–2025 | 4,545 | 42 | +0.270 | +0.177 |
-| **Overall** | | | | **+0.281** (σ 0.017) | +0.262 (σ 0.045) |
+| 2018 | 2015–2017 | 4,876 | 34 | +0.331 | +0.293 |
+| 2019 | 2015–2018 | 5,061 | 35 | +0.316 | +0.285 |
+| 2020 | 2015–2019 | 4,230 | 29 | +0.299 | +0.285 |
+| 2021 | 2015–2020 | 5,625 | 38 | +0.340 | +0.323 |
+| 2022 | 2015–2021 | 5,270 | 40 | +0.305 | +0.283 |
+| 2023 | 2015–2022 | 6,388 | 55 | +0.308 | +0.257 |
+| 2024 | 2015–2023 | 5,353 | 48 | +0.316 | +0.252 |
+| 2025 | 2015–2024 | 5,230 | 46 | +0.298 | +0.208 |
+| 2026 | 2015–2025 | 4,545 | 42 | +0.289 | +0.177 |
+| **Overall** | | | | **+0.311** (σ 0.016) | +0.262 (σ 0.045) |
 
-The baseline ranks each field by one feature, strokes gained total over the last 24 starts. Through
-2022 it matches or beats the model; from 2023 the model holds its level and the baseline falls away. The backfilled data has no strokes
-gained for missed cuts or majors, so the likely reading is that the model adds robustness to missing
-data more than it adds ranking skill.
+The baseline ranks each field by one feature, strokes gained total over the last 24 starts. The model
+beats it in every fold, by most from 2023, where the backfilled data has no strokes gained for missed
+cuts or majors and the baseline falls away.
 
-The model's one results-based input, each player's average prize share over the last 8/16/24 starts,
-was added after that comparison: it exists for every start, missed cuts and majors included, and
-lifted the mean from 0.275 to 0.281, improving all nine folds.
+Three changes, each measured on the same folds, took the mean from 0.275 to 0.311:
+
+- **Rolling prize share** (0.275 → 0.281, better in all nine folds). Each player's average share of
+  the purse over the last 8/16/24 starts: results-based form that exists for every start, missed cuts
+  and majors included.
+- **A smaller model** (0.281 → 0.297). The ranker had 800 trees and overfit: sorting each field by
+  world ranking alone scored 0.298 and beat it, even when the ranking was given to it as a feature. It
+  now has 100. The tree count was picked on these same folds, so that gain is slightly optimistic;
+  50 to 200 trees score alike.
+- **World ranking as a feature** (0.297 → 0.311). OWGR rank and average points from the last ranking
+  published before each event (`src/owgr.py`).
+
+World ranking alone is the harder benchmark. The model is now ahead of it on ρ (0.311 vs 0.298), and
+on the seven 2026 weeks played live it scores 0.325 out-of-fold against OWGR's 0.294, ahead at six.
+On the prize share captured by its top 10 picks it only ties OWGR (0.235 vs 0.237 of the purse per
+event), so at the top of the board it has not yet shown it adds anything to the ranking.
 
 Reproduce with `python -m src.model --cv`.
 
@@ -51,7 +63,7 @@ variant and a FedEx Cup Playoffs variant. The links variant was a no-op on the 2
 +0.012 ρ over the base model on the 10 links events with out-of-fold scores (0.280 vs 0.268, standard
 error 0.007, better at 6 of 10), which is inside the noise, so it stays opt-in via `--links`; the playoff
 variant **underperformed the base model** on playoff events, since ~23 historical playoff editions is
-far too thin to train an 800-tree ranker on. It's kept behind an explicit `--playoff` opt-in rather
+far too thin to train a separate ranker on. It's kept behind an explicit `--playoff` opt-in rather
 than auto-selected. Negative results are cheaper to keep than to rediscover.
 
 ## Analyst agent
@@ -162,13 +174,14 @@ python -m agent.cli --model claude-haiku-5-5 "Who are the best value plays this 
 python -m evals.generate                             # regenerate cases from the current DB
 python -m evals.run_evals --model claude-haiku-5-5   # run all 44 (about $0.06 on Haiku)
 python -m evals.run_evals --rescore evals/results/<run>.json   # re-grade a saved run, no API calls
-python -m pytest tests/                              # 122 tests, no API calls
+python -m pytest tests/                              # 123 tests, no API calls
 ```
 
 **Known limitations:**
 - Explanations only work for live weekly events. Backtest scores come from per-season models that aren't saved.
 - Stored projections for past 2026 weeks were re-scored by a model that has since trained on those results. `model_performance` grades them on out-of-fold scores instead; the rankings themselves are in-sample.
 - The eval tables above were measured before the 2023+ backfill and retrain, on cases generated from the old rankings. On the current cases Haiku 5.5 passes 44/44 (one run, 2026-11-16); Opus has not been re-run.
+- The API's world-ranking history is patchy for recent seasons (22 snapshots for 2025, 4 for 2026), so those training rows carry a ranking up to a few months old. `predict` saves the current ranking each week, which keeps it fresh from here on.
 - The project is on Python 3.8, which pins the Anthropic SDK to 0.72; newer request options go through `extra_body`.
 
 ## Project structure
@@ -178,6 +191,7 @@ src/
 ├── paths.py       # Single source of truth for all filesystem paths
 ├── ingest.py      # Load and standardize historical CSV data
 ├── features.py    # Rolling SG averages, course history, cut rate
+├── owgr.py        # World-ranking snapshots from the PGA Tour API
 ├── pipeline.py    # Build historical feature matrix
 ├── model.py       # XGBRanker training, temporal CV, model variants
 ├── scrape.py      # PGA Tour GraphQL API fetcher
@@ -212,6 +226,7 @@ You'll also need the historical data CSV at `data/raw/historical/14-22 practice 
 
 **1. (One-time) Build the historical model**
 ```bash
+python -m src.owgr              # world-ranking snapshots → data/raw/owgr/ (network)
 python -m src.pipeline          # builds data/processed/feature_matrix.parquet
 python -m src.model             # trains and saves models/model_base.pkl
 ```
