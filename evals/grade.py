@@ -72,6 +72,10 @@ def feature_mentioned(feature: str, answer: str) -> bool:
     m = re.fullmatch(r"made_cut_rate_roll(\d+)", feature)
     if m:
         return any("cut" in s and re.search(rf"(?<!\d){m.group(1)}(?!\d)", s) for s in _sentences(answer))
+    m = re.fullmatch(r"prize_pct_roll(\d+)", feature)
+    if m:
+        return any(re.search(r"prize|purse|earnings|winnings", s) and re.search(rf"(?<!\d){m.group(1)}(?!\d)", s)
+                   for s in _sentences(answer))
     return any(w in answer.lower() for w in _OTHER_WORDS.get(feature, [feature]))
 
 

@@ -18,21 +18,25 @@ lineup selection needs — not absolute error):
 
 | Test season | Train | Rows | Tournaments | Model ρ (mean) | Baseline ρ |
 |---|---|---|---|---|---|
-| 2018 | 2015–2017 | 4,876 | 34 | +0.268 | +0.293 |
-| 2019 | 2015–2018 | 5,061 | 35 | +0.261 | +0.285 |
-| 2020 | 2015–2019 | 4,230 | 29 | +0.277 | +0.285 |
-| 2021 | 2015–2020 | 5,625 | 38 | +0.315 | +0.323 |
-| 2022 | 2015–2021 | 5,270 | 40 | +0.280 | +0.283 |
-| 2023 | 2015–2022 | 6,388 | 55 | +0.261 | +0.257 |
-| 2024 | 2015–2023 | 5,353 | 48 | +0.282 | +0.252 |
-| 2025 | 2015–2024 | 5,230 | 46 | +0.269 | +0.208 |
-| 2026 | 2015–2025 | 4,545 | 42 | +0.260 | +0.177 |
-| **Overall** | | | | **+0.275** (σ 0.017) | +0.262 (σ 0.045) |
+| 2018 | 2015–2017 | 4,876 | 34 | +0.273 | +0.293 |
+| 2019 | 2015–2018 | 5,061 | 35 | +0.269 | +0.285 |
+| 2020 | 2015–2019 | 4,230 | 29 | +0.286 | +0.285 |
+| 2021 | 2015–2020 | 5,625 | 38 | +0.321 | +0.323 |
+| 2022 | 2015–2021 | 5,270 | 40 | +0.284 | +0.283 |
+| 2023 | 2015–2022 | 6,388 | 55 | +0.268 | +0.257 |
+| 2024 | 2015–2023 | 5,353 | 48 | +0.290 | +0.252 |
+| 2025 | 2015–2024 | 5,230 | 46 | +0.271 | +0.208 |
+| 2026 | 2015–2025 | 4,545 | 42 | +0.270 | +0.177 |
+| **Overall** | | | | **+0.281** (σ 0.017) | +0.262 (σ 0.045) |
 
 The baseline ranks each field by one feature, strokes gained total over the last 24 starts. Through
 2022 it matches or beats the model; from 2023 the model holds its level and the baseline falls away. The backfilled data has no strokes
 gained for missed cuts or majors, so the likely reading is that the model adds robustness to missing
 data more than it adds ranking skill.
+
+The model's one results-based input, each player's average prize share over the last 8/16/24 starts,
+was added after that comparison: it exists for every start, missed cuts and majors included, and
+lifted the mean from 0.275 to 0.281, improving all nine folds.
 
 Reproduce with `python -m src.model --cv`.
 
@@ -40,7 +44,7 @@ These figures are measured *after* the train/serve parity fix — training previ
 a player's full career while inference used a flat mean of recent events, so the model was scored on
 a feature distribution it never trained on. Closing that gap lowered the reported CV score slightly,
 which is the point: the earlier number was partly measuring a bias the live pipeline couldn't
-reproduce. Verify with `python -m tests.test_feature_parity`.
+reproduce. Live features are now built by the training code itself (`tests/test_weekly.py`).
 
 Two tournament-type model variants were built and backtested against this baseline — a links-course
 variant and a FedEx Cup Playoffs variant. The links variant was a no-op on the 2014–2022 data. Re-tested after the backfill, it scores
@@ -164,7 +168,7 @@ python -m pytest tests/                              # 122 tests, no API calls
 **Known limitations:**
 - Explanations only work for live weekly events. Backtest scores come from per-season models that aren't saved.
 - Stored projections for past 2026 weeks were re-scored by a model that has since trained on those results. `model_performance` grades them on out-of-fold scores instead; the rankings themselves are in-sample.
-- The eval results above were measured before the 2023+ backfill and retrain, on cases generated from the old rankings.
+- The eval tables above were measured before the 2023+ backfill and retrain, on cases generated from the old rankings. On the current cases Haiku 5.5 passes 44/44 (one run, 2026-11-16); Opus has not been re-run.
 - The project is on Python 3.8, which pins the Anthropic SDK to 0.72; newer request options go through `extra_body`.
 
 ## Project structure

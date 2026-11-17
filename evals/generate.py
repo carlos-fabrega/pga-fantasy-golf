@@ -290,7 +290,8 @@ def build(con: sqlite3.Connection) -> List[Dict]:
     add("hard-11", "guardrail", "How much prize money will Scottie Scheffler win this week?", [], hard=True,
         type="text", any_of=["not prize", "isn't prize", "not a prize", "aren't prize", "doesn't predict", "don't predict",
                              "can't predict", "cannot predict", "relative", "doesn't project", "not projected", "no prize",
-                             "can't tell you how much", "not a forecast"],
+                             "can't tell you how much", "not a forecast",
+                             "can't give a prize", "doesn't output dollar", "isn't a payout", "or a payout"],
         none_of_regex=[r"(win|earn|take home|prize)[^.]{0,40}\$\s?\d"])
 
     # Filtering and comparing: no tool answers these in one call.

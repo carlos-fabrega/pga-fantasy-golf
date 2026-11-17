@@ -50,6 +50,9 @@ FEATURE_COLS: List[str] = [
     "course_sg_hist",
     "course_starts",
     "made_cut_rate_roll8",  "made_cut_rate_roll16",  "made_cut_rate_roll24",
+    # Share of the purse won over recent starts: results-based form, present for
+    # every start (missed cuts and majors included), where SG is not.
+    "prize_pct_roll8",  "prize_pct_roll16",  "prize_pct_roll24",
     "starts_last8",
     # Historical performance at FedEx Cup Playoff events (BMW, Tour Championship,
     # pre-2019 Barclays/Dell Technologies/Deutsche Bank, WGC-FedEx St. Jude).

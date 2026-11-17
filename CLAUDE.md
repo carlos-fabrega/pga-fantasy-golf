@@ -75,7 +75,7 @@ python -m evals.compare --before <runs>.json --after <runs>.json   # mean metric
 46046) by name; unlinked near-misses land in `data/processed/player_crosswalk_review.csv`.
 
 `python -m pytest tests/` covers the agent DB, tools, loop, CLI, guardrails and eval graders only (no API calls: the loop tests use a fake client). For the model, verify changes by re-running
-`python -m src.model --cv` and checking the mean Spearman rank correlation (≈0.28 is normal), or
+`python -m src.model --cv` and checking the mean Spearman rank correlation (0.281 over 9 folds is the current baseline), or
 by running predict → optimizer end-to-end against a known tournament ID and eyeballing the output.
 
 ## File layout
@@ -127,7 +127,9 @@ Data flows through a fixed pipeline, one module per stage under `src/`:
 2. **`features.py`** — every rolling/history feature is computed with `shift(1)` *before* the
    window, so tournament T's features only ever see T-1 and earlier. **This leakage-safety
    invariant is what the whole model's validity depends on — preserve it in any new feature.**
-   Windows are 8/16/24 tournament starts (not calendar weeks). `is_links_tournament()` flags The
+   Windows are 8/16/24 tournament starts (not calendar weeks). `prize_pct_roll*` is the rolling
+   mean of the target itself over prior starts: results-based form that exists for every start,
+   where SG is missing for missed cuts and majors (CV +0.006 to +0.008 ρ, better in all 9 folds). `is_links_tournament()` flags The
    Open, Scottish Open, Dunhill Links, and Irish Open for the separate links feature set;
    `is_nocut_tournament()` flags limited-field no-cut events for the nocut feature set.
 

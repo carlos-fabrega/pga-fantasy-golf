@@ -566,7 +566,8 @@ _PLAYER_ID = {"type": "string", "description": "player_id from resolve_player."}
 _FEATURE_GLOSSARY = (
     "Feature names: sg_*_per_round_roll8/16/24 are strokes gained per round, averaged over the "
     "player's last 8/16/24 tournament starts (starts, not rounds); made_cut_rate_* the share of "
-    "those starts making the cut; starts_last8 starts in the last 8 events; course_* / links_* / "
+    "those starts making the cut; prize_pct_roll* the average share of the purse won over them "
+    "(0 for a missed cut); starts_last8 starts in the last 8 events; course_* / links_* / "
     "playoff_* history at this course or event type. Every feature only uses events before this one.")
 
 TOOLS: List[dict] = [

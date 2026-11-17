@@ -3,6 +3,18 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-11-16: New baseline on the regenerated cases; hard-11 phrasings widened
+
+**Change.** The model gained a rolling prize-share feature and was retrained, so the cases were regenerated
+again. `prize_pct_roll*` is a recognised driver family in the grader (a sentence naming prize, purse,
+earnings or winnings plus the window). hard-11 (prize-money question) accepts four more refusals: a first
+run failed it on "I can't give a prize money figure ... doesn't output dollar amounts", which is the
+right answer in words the list didn't have.
+
+**Result.** Haiku 5.5, one run (`evals/results/20261116-185647_claude-haiku-5-5.md`): 44/44, hard cases
+14/14, unsupported numbers in 5% of answers, $0.07 total. Not comparable with the October baseline (different
+cases and rankings). Opus not re-run.
+
 ## 2026-11-13: Backtest extended to 2018–2026; lineups optimise expected prize share
 
 **Change.** The agent DB now holds the backfilled events, so `model_performance` covers 2018–2026 and

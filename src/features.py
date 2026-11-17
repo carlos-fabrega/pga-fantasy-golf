@@ -320,6 +320,29 @@ def add_made_cut_rate(
     return df.drop(columns=["_order"]).reset_index(drop=True)
 
 
+# ── Rolling prize share ────────────────────────────────────────────────────────
+
+def add_prize_share(
+    df: pd.DataFrame,
+    windows: Sequence[int] = _WINDOWS,
+) -> pd.DataFrame:
+    """
+    Rolling mean of prize_pct, the model's own target, over recent starts.
+    Unlike strokes gained it exists for every start (a missed cut is 0, and
+    majors are covered), so it carries form where the SG windows have gaps.
+    """
+    df = df.copy()
+    df["_order"] = _sort_key(df)
+    df = df.sort_values(["player_id", "_order"])
+
+    for w in windows:
+        df[f"prize_pct_roll{w}"] = df.groupby("player_id")["prize_pct"].transform(
+            lambda x, w=w: _rolling_mean(x, w)
+        )
+
+    return df.drop(columns=["_order"]).reset_index(drop=True)
+
+
 # ── Recent starts ──────────────────────────────────────────────────────────────
 
 def add_recent_starts(df: pd.DataFrame, window: int = 8) -> pd.DataFrame:
@@ -350,6 +373,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = add_links_history(df)
     df = add_playoff_history(df)
     df = add_made_cut_rate(df)
+    df = add_prize_share(df)
     df = add_recent_starts(df)
     return df
 
