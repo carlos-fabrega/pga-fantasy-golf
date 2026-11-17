@@ -10,7 +10,7 @@ Input DataFrame must have been standardized by ingest.combine().
 
 from __future__ import annotations
 
-from typing import Sequence, List
+from typing import Optional, Sequence, List
 
 import numpy as np
 import pandas as pd
@@ -361,6 +361,41 @@ def add_recent_starts(df: pd.DataFrame, window: int = 8) -> pd.DataFrame:
     return df.drop(columns=["_order"]).reset_index(drop=True)
 
 
+# ── World ranking ──────────────────────────────────────────────────────────────
+
+def add_owgr(df: pd.DataFrame, snapshots: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+    """
+    owgr_rank / owgr_points: each player's world ranking and average points in
+    the latest snapshot dated before the tournament (src.owgr). NaN for players
+    outside the ranked ~1,000 and when no earlier snapshot exists.
+
+    Leakage guard: a snapshot dated on an event's final day already includes
+    that event. Historical rows carry the event's end date and scraped/field
+    rows its start date, so the snapshot must be at least 6 days (historical)
+    or 3 days (others) older than the row's date. Either way the newest one
+    allowed is the ranking through the previous week.
+    """
+    if snapshots is None:
+        from src.owgr import load_snapshots
+        snapshots = load_snapshots()
+    df = df.copy()
+    if snapshots.empty:
+        df["owgr_rank"] = np.nan
+        df["owgr_points"] = np.nan
+        return df
+
+    dates = np.sort(snapshots["snapshot_date"].unique())
+    lag = np.where(df["source"] == "historical", 6, 3)
+    cutoff = (df["date"] - pd.to_timedelta(lag, unit="D")).values
+    idx = np.searchsorted(dates, cutoff, side="right") - 1
+    snap = np.where(idx >= 0, dates[np.clip(idx, 0, None)], np.datetime64("NaT"))
+    key = pd.MultiIndex.from_arrays([pd.to_datetime(snap), df["player_id"].astype(str)])
+    ranked = snapshots.set_index(["snapshot_date", "player_id"])
+    for col in ("owgr_rank", "owgr_points"):
+        df[col] = ranked[col].reindex(key).values
+    return df
+
+
 # ── Master feature builder ─────────────────────────────────────────────────────
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -375,6 +410,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     df = add_made_cut_rate(df)
     df = add_prize_share(df)
     df = add_recent_starts(df)
+    df = add_owgr(df)
     return df
 
 
@@ -383,7 +419,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 def feature_columns(df: pd.DataFrame) -> List[str]:
     """Return the list of engineered feature columns present in df."""
     roll_pattern = "_roll"
-    other = ["course_sg_hist", "course_starts", "starts_last8"]
+    other = ["course_sg_hist", "course_starts", "starts_last8", "owgr_rank", "owgr_points"]
     return [
         c for c in df.columns
         if roll_pattern in c or c in other

@@ -3,6 +3,14 @@
 One entry per change to the agent, prompt, tools, graders or cases, with before and after numbers
 (PGA_AGENT_PLAN.md §9). Reports are in `evals/results/`.
 
+## 2026-11-16: Cases regenerated for the 100-tree model with world-ranking features
+
+**Change.** The ranker went from 800 to 100 trees and gained `owgr_rank` / `owgr_points`, so every variant
+was retrained, the seven live weeks re-scored and the cases regenerated. The grader recognises the two new
+features as drivers ("OWGR", "world rank", "ranked", "ranking points").
+
+**Result.** Not run. The Haiku 44/44 below was measured on the previous rankings.
+
 ## 2026-11-16: New baseline on the regenerated cases; hard-11 phrasings widened
 
 **Change.** The model gained a rolling prize-share feature and was retrained, so the cases were regenerated

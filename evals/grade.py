@@ -36,6 +36,7 @@ _OTHER_WORDS = {
     "course_sg_hist": ["course"], "course_starts": ["course"],
     "links_sg_hist": ["links"], "links_starts": ["links"],
     "starts_last8": ["starts"],
+    "owgr_rank": ["owgr", "world rank", "ranked"], "owgr_points": ["owgr", "world rank", "ranking points"],
 }
 _UNAVAILABLE_CUES = ["not available", "unavailable", "isn't available", "aren't available", "not in the database",
                      "no salar", "can't", "cannot", "couldn't", "could not", "don't have", "doesn't have",

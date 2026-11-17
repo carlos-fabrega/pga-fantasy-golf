@@ -16,6 +16,7 @@ RAW_DIR        = DATA_DIR / "raw"
 HISTORICAL_CSV = RAW_DIR / "historical" / "14-22 practice data.csv"
 SCRAPED_DIR    = RAW_DIR / "scraped"
 RESULTS_DIR    = RAW_DIR / "results"   # cached 2026+ leaderboards + schedule (agent.db --fetch)
+OWGR_DIR       = RAW_DIR / "owgr"      # world-ranking snapshots (src.owgr)
 
 # ── Processed artifacts ───────────────────────────────────────────────────────
 PROCESSED_DIR  = DATA_DIR / "processed"

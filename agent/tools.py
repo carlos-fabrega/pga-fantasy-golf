@@ -568,7 +568,9 @@ _FEATURE_GLOSSARY = (
     "player's last 8/16/24 tournament starts (starts, not rounds); made_cut_rate_* the share of "
     "those starts making the cut; prize_pct_roll* the average share of the purse won over them "
     "(0 for a missed cut); starts_last8 starts in the last 8 events; course_* / links_* / "
-    "playoff_* history at this course or event type. Every feature only uses events before this one.")
+    "playoff_* history at this course or event type; owgr_rank / owgr_points the player's world "
+    "ranking and average ranking points going into the event. Every feature only uses events "
+    "before this one.")
 
 TOOLS: List[dict] = [
     {

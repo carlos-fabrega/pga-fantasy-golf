@@ -190,11 +190,12 @@ def main() -> None:
               f"@ {upcoming[0]['course']}  ({args.tournament})\n")
 
     if args.tournament:
-        from src import backfill
+        from src import backfill, owgr
         from src.scrape import build_weekly_features
 
         # Features come from the local history, so fetch any event finished since the last run.
         backfill.run([dt.date.today().year])
+        owgr.fetch_latest()
         weekly_df = build_weekly_features(args.tournament)
 
         t_name = weekly_df["tournament_name"].iloc[0] if "tournament_name" in weekly_df.columns else args.tournament

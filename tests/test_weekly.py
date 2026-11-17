@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import pytest
 
-from src import features, model, optimizer, scrape
+from src import features, model, optimizer, owgr, scrape
 from src.predict import select_variant
 
 
@@ -40,6 +40,21 @@ def test_rolling_sg_includes_latest_event_on_rows_without_sg():
     assert out.tolist()[1:] == [1.0, 1.0, 2.0]
 
 
+def test_owgr_comes_from_the_last_snapshot_before_the_event():
+    snaps = pd.DataFrame({"snapshot_date": pd.to_datetime(["2026-03-08", "2026-03-15", "2026-03-22"]),
+                          "player_id": "1", "owgr_rank": [10, 5, 1], "owgr_points": [4.0, 6.5, 9.0]})
+    rows = pd.DataFrame({
+        "player_id": ["1", "1", "2", "1"],
+        "source": ["scraped", "historical", "scraped", "scraped"],
+        # a Thursday start; the same event's Sunday finish (its own snapshot is dated that day);
+        # an unranked player; an event before any snapshot
+        "date": pd.to_datetime(["2026-03-19", "2026-03-22", "2026-03-19", "2026-03-05"])})
+    out = features.add_owgr(rows, snaps)
+    assert out["owgr_rank"].tolist()[:2] == [5, 5]
+    assert out["owgr_points"].tolist()[:2] == [6.5, 6.5]
+    assert out["owgr_rank"].isna().tolist() == [False, False, True, True]
+
+
 def test_weekly_features_use_local_history(monkeypatch):
     # Player "1": ten weekly starts at Test GC, sg_total 0..9, every cut made.
     history = pd.DataFrame([{
@@ -51,6 +66,9 @@ def test_weekly_features_use_local_history(monkeypatch):
     monkeypatch.setattr(scrape, "get_field", lambda tid: [
         {"player_id": "1", "player_name": "Has History", "owgr": 5},
         {"player_id": "2", "player_name": "No History", "owgr": 900}])
+    monkeypatch.setattr(owgr, "load_snapshots", lambda: pd.DataFrame({
+        "snapshot_date": [pd.Timestamp("2026-03-15")], "player_id": ["1"],
+        "owgr_rank": [5], "owgr_points": [6.5]}))
     monkeypatch.setattr(scrape, "get_upcoming_tournaments", lambda n=10: [
         {"tournament_id": "R1", "tournament_name": "Test Classic", "course": "Test GC",
          "start_date": pd.Timestamp("2026-03-19").value // 10**6}])
@@ -63,6 +81,7 @@ def test_weekly_features_use_local_history(monkeypatch):
     assert df.loc["1", "made_cut_rate_roll8"] == 1.0
     assert df.loc["1", "prize_pct_roll8"] == pytest.approx(0.055)   # mean of 0.02..0.09
     assert df.loc["1", "course_starts"] == 10 and df.loc["1", "course_sg_hist"] == 4.5
+    assert df.loc["1", "owgr_rank"] == 5 and pd.isna(df.loc["2", "owgr_rank"])
     assert pd.isna(df.loc["2", "sg_total_per_round_roll8"])
     for col in ("course_starts", "links_starts", "playoff_starts"):
         assert df.loc["2", col] == 0                         # 0, not NaN, when there is no history
