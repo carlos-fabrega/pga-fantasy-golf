@@ -3,6 +3,7 @@
 import os
 
 import pandas as pd
+import pytest
 
 from src import features, model, optimizer, scrape
 from src.predict import select_variant
@@ -46,7 +47,7 @@ def test_weekly_features_use_local_history(monkeypatch):
         "tournament_name": "Some Open", "course": "Test GC", "course_key": "test gc",
         "date": pd.Timestamp("2026-01-01") + pd.Timedelta(weeks=i),
         "rounds_played": 4.0, "made_cut": True, "sg_total_per_round": float(i),
-        "source": "scraped"} for i in range(10)])
+        "prize_pct": 0.01 * i, "source": "scraped"} for i in range(10)])
     monkeypatch.setattr(scrape, "get_field", lambda tid: [
         {"player_id": "1", "player_name": "Has History", "owgr": 5},
         {"player_id": "2", "player_name": "No History", "owgr": 900}])
@@ -60,6 +61,7 @@ def test_weekly_features_use_local_history(monkeypatch):
     assert df.loc["1", "sg_total_per_round_roll24"] == 4.5   # all 10: no 10-event cap
     assert df.loc["1", "starts_last8"] == 8
     assert df.loc["1", "made_cut_rate_roll8"] == 1.0
+    assert df.loc["1", "prize_pct_roll8"] == pytest.approx(0.055)   # mean of 0.02..0.09
     assert df.loc["1", "course_starts"] == 10 and df.loc["1", "course_sg_hist"] == 4.5
     assert pd.isna(df.loc["2", "sg_total_per_round_roll8"])
     for col in ("course_starts", "links_starts", "playoff_starts"):

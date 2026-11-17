@@ -76,6 +76,8 @@ def con(tmp_path, model, monkeypatch):
         s = model.predict(f[BASE].astype(float)) + offset
         return pd.DataFrame({"player_id": f["player_id"].values, "event_id": event_id,
                              "model_version": version, "score": s,
+                             # live projections carry a calibrated prize share; out-of-fold scores don't
+                             "expected_prize_pct": np.nan if version == "base_oof" else np.exp(s) / 100,
                              "rank": pd.Series(s).rank(ascending=False, method="min").astype(int).values})
 
     backtest = pd.DataFrame({"player_id": [p for p, *_ in BACKTEST], "event_id": "2254",
@@ -271,6 +273,21 @@ def test_lineups_respect_budget_locks_excludes_and_differ(con):
         assert ids not in seen
         seen.append(ids)
     assert len(seen) == 3
+
+
+def test_lineups_maximise_expected_prize_share(con):
+    from itertools import combinations
+    budget = 2_500_000
+    out = run_tool(con, "propose_lineups", {"budget": budget})
+    exp = dict(con.execute("SELECT player_id, expected_prize_pct FROM predictions "
+                           "WHERE event_id = 'R2026060' AND model_version = 'nocut'"))
+    best = max(sum(exp[i] for i in c) for c in combinations(FIELD, 6)
+               if sum(SALARY[i] for i in c) <= budget)
+    assert out["lineups"][0]["total_expected_prize_pct"] == pytest.approx(best, abs=1e-4)
+
+    # Out-of-fold scores have no calibrated prize share, so they are optimised on the score.
+    oof = run_tool(con, "propose_lineups", {"event": "R2026013", "model_version": "base_oof", "budget": budget})
+    assert "total_expected_prize_pct" not in oof["lineups"][0]
 
 
 def test_lineups_report_when_fewer_fit(con):

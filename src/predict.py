@@ -22,7 +22,7 @@ from typing import Optional
 
 import pandas as pd
 
-from src.model import VARIANT_FEATURES, load, staleness_warning
+from src.model import VARIANT_FEATURES, expected_prize_pct, load, staleness_warning
 from src.features import is_nocut_tournament
 from src.paths import PROCESSED_DIR
 
@@ -63,11 +63,11 @@ def select_variant(
     (True forces that variant on; False forces "base"); None means auto-detect
     no-cut (Tour Championship/BMW/Sentry/WGCs — see features._NOCUT_PATTERNS).
 
-    NOTE: the links variant is NOT auto-selected. links_sg_hist is entirely
-    NaN and links_starts constant 0 in the 2014-2022 training data (the CSV
-    has no SG for links events), so the model gives both zero importance and
-    differs from base only by column-sampling noise. Re-enable once backfilled
-    2023+ data gives those features training signal. Pass links=True to use it.
+    NOTE: the links variant is NOT auto-selected. Its two features only have
+    values from 2023 on (the historical CSV has no SG for links events), and
+    on the 10 links events with out-of-fold scores it beats base by +0.012 rho
+    (standard error 0.007): not enough to switch models on. Pass links=True
+    to use it.
     NOTE: the playoff variant is NOT auto-selected for BMW/Tour Championship —
     backtesting (see src/model.py FEATURE_COLS_PLAYOFF comment) showed it
     underperforms the base model on held-out playoff seasons (too little
@@ -110,7 +110,9 @@ def predict(
     """
     Score a weekly feature DataFrame.
     variant selects the model/feature set ("base", "links", or "playoff").
-    Returns a DataFrame with player_id, player_name, projected_prize_pct, rank.
+    Returns a DataFrame with player_id, player_name, projected_prize_pct (the
+    ranker's raw score), expected_prize_pct (that score calibrated to a share
+    of the purse; what the optimizer maximises) and rank.
     """
     model = load(variant=variant)
     warning = staleness_warning(model, variant)
@@ -125,6 +127,7 @@ def predict(
             out[col] = weekly_df[col]
 
     out["projected_prize_pct"] = preds.round(6)
+    out["expected_prize_pct"] = expected_prize_pct(model, preds).round(6)
     out["rank"] = out["projected_prize_pct"].rank(ascending=False).astype(int)
     out = out.sort_values("rank").reset_index(drop=True)
     return out
@@ -240,11 +243,11 @@ def main() -> None:
     print(f"\n{'='*64}")
     print(f"  {tournament}  |  {course}  {model_label}")
     print(f"{'='*64}")
-    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Proj. Score':<14}")
+    print(f"{'Rank':<6}{'Player':<30}{'OWGR':<8}{'Exp. Prize %':<14}")
     print("-" * 60)
     for _, row in display.iterrows():
         owgr = f"#{int(row['owgr'])}" if pd.notna(row.get("owgr")) else "—"
-        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['projected_prize_pct']*100:>7.2f}%")
+        print(f"  {row['rank']:<4}  {row['player_name']:<28}  {owgr:<6}  {row['expected_prize_pct']*100:>7.2f}%")
 
     print(f"\nFull projections saved → {proj_path}")
 

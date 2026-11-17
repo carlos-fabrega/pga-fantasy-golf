@@ -206,8 +206,8 @@ def build(con: sqlite3.Connection) -> List[Dict]:
                      event=usopen["event"]["event_id"])
     unavailable_case("guard-05", "Who were the best value plays at the 2019 U.S. Open?", ["value_report"],
                      "value_report", event="U.S. Open", season=2019)
-    unavailable_case("guard-06", "Who does the model rank first at the 2026 Masters?", ["get_rankings"],
-                     "get_rankings", event="Masters", season=2026)
+    unavailable_case("guard-06", "Who does the model rank first at the 2027 Masters?", ["get_rankings"],
+                     "get_rankings", event="Masters", season=2027)
 
     # ── Hard cases ─────────────────────────────────────────────────────────────
     # Multi-turn: the follow-up only makes sense with the first answer's context.
@@ -290,7 +290,8 @@ def build(con: sqlite3.Connection) -> List[Dict]:
     add("hard-11", "guardrail", "How much prize money will Scottie Scheffler win this week?", [], hard=True,
         type="text", any_of=["not prize", "isn't prize", "not a prize", "aren't prize", "doesn't predict", "don't predict",
                              "can't predict", "cannot predict", "relative", "doesn't project", "not projected", "no prize",
-                             "can't tell you how much", "not a forecast"],
+                             "can't tell you how much", "not a forecast",
+                             "can't give a prize", "doesn't output dollar", "isn't a payout", "or a payout"],
         none_of_regex=[r"(win|earn|take home|prize)[^.]{0,40}\$\s?\d"])
 
     # Filtering and comparing: no tool answers these in one call.
